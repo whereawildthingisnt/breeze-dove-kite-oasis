@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "SPECIAL Forge",
+      "hasCanvas": false,
+      "bodyTextLen": 652,
+      "bodyTextHash": "d0f5d5094c5b1065783406ff532e7571bffadb3319f6731c39054f089ec38e3c",
+      "bodyTextPrefix": "SPECIAL D20 SPECIAL Forge Roster New SPECIAL FORGE · TWO DESKS M",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "SPECIAL Forge",
+      "hasCanvas": false,
+      "bodyTextLen": 652,
+      "bodyTextHash": "780a27738f671560b7fcc43130bb433f7a2f9e57cf5dafcd7e2096469fa92311",
+      "bodyTextPrefix": "SPECIAL D20 SPECIAL Forge Roster New SPECIAL FORGE · TWO DESKS M",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

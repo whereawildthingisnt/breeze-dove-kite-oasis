@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SPECIAL Forge — Character Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e0f0d;
+      --surface: #181916;
+      --raised: #21231e;
+      --inset: #121310;
+      --fg: #eceae3;
+      --muted: #9c9a92;
+      --subtle: #6f6e67;
+      --accent: #c5cdc8;
+      --accent-fg: #0e0f0d;
+      --border: #2c2e29;
+      --danger: #c45c4a;
+      --ok: #7d9a78;
+      --hat: #e2c14a;
+      --suit: #2a4f86;
+      --skin: #f3c7a8;
+      --hair: #f0d27a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: Barlow, system-ui, sans-serif; }
+    body { min-height: 100dvh; }
+    button { font: inherit; cursor: pointer; }
+    input, textarea, select { font: inherit; color: var(--fg); background: var(--inset); border: 1px solid var(--border); border-radius: 8px; }
+    h1, h2, h3 { font-family: "Barlow Condensed", Barlow, sans-serif; letter-spacing: -0.02em; margin: 0; }
+    .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+    .app { max-width: 1280px; margin: 0 auto; padding: 20px 18px 80px; }
+    header.top {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+      border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 18px;
+    }
+    .eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--muted); }
+    .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      height: 40px; padding: 0 14px; border-radius: 8px; border: 0; font-weight: 600;
+      background: var(--accent); color: var(--accent-fg);
+    }
+    .btn.ghost { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--border); }
+    .btn.danger { background: var(--danger); color: var(--fg); }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } .mascot-col { order: -1; } }
+
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+    .steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .step {
+      border: 1px solid var(--border); background: transparent; color: var(--muted);
+      border-radius: 999px; height: 32px; padding: 0 12px; font-size: 13px;
+    }
+    .step.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+
+    .grid7 { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+    @media (max-width: 720px) { .grid7 { grid-template-columns: 1fr 1fr; } }
+    .stat {
+      background: var(--raised); border-radius: 12px; padding: 10px 8px; text-align: center;
+    }
+    .stat .k { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.16em; color: var(--subtle); }
+    .stat .n { font-family: "Barlow Condensed", sans-serif; font-size: 32px; line-height: 1; }
+    .stat .n.low { color: var(--danger); }
+    .stat .n.high { color: var(--accent); }
+    .stat .bits { font-size: 11px; color: var(--subtle); margin-top: 4px; min-height: 2.6em; }
+    .stepper { display: flex; align-items: center; justify-content: center; gap: 0; margin-top: 8px; background: var(--inset); border-radius: 8px; }
+    .stepper button { width: 36px; height: 36px; border: 0; background: transparent; color: var(--fg); }
+    .stepper input { width: 52px; height: 36px; border: 0; background: transparent; text-align: center; font-family: "IBM Plex Mono", monospace; font-size: 16px; }
+
+    label.field { display: block; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+    .stack { display: grid; gap: 12px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
+    textarea { width: 100%; min-height: 72px; padding: 10px; resize: vertical; }
+    input[type="text"], input[type="number"] { width: 100%; height: 40px; padding: 0 10px; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+    .pick {
+      text-align: left; background: var(--raised); border: 1px solid var(--border); color: var(--fg);
+      border-radius: 12px; padding: 12px; min-height: 108px;
+    }
+    .pick.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .pick b { display: block; margin-bottom: 4px; }
+    .pick span { color: var(--muted); font-size: 12px; }
+
+    table.skills { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.skills th { text-align: left; font-size: 11px; color: var(--subtle); font-weight: 500; padding: 6px 8px; }
+    table.skills td { border-top: 1px solid var(--border); padding: 6px 8px; }
+    table.skills tr.tag td:first-child { color: var(--accent); font-weight: 600; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { background: var(--raised); border-radius: 6px; padding: 10px 12px; min-width: 92px; }
+    .chip .l { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--subtle); }
+    .chip .v { font-family: "Barlow Condensed", sans-serif; font-size: 24px; line-height: 1; }
+
+    .note { font-size: 13px; color: var(--muted); background: var(--inset); border-radius: 10px; padding: 10px 12px; }
+
+    /* mascot */
+    .mascot-col { position: sticky; top: 16px; align-self: start; }
+    .mascot-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 12px 12px 14px; }
+    .bubble {
+      background: var(--raised); border-radius: 14px 14px 14px 4px; padding: 12px 14px; min-height: 92px;
+      font-size: 15px; line-height: 1.45; margin-bottom: 10px;
+    }
+    .bubble .who { font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--subtle); margin-bottom: 4px; }
+    .stage {
+      display: grid; place-items: end center; height: 420px; overflow: hidden;
+      background:
+        radial-gradient(ellipse at 50% 78%, #2a4f8640 0%, transparent 55%),
+        linear-gradient(180deg, #141612 0%, #0c0d0b 100%);
+      border-radius: 16px;
+    }
+    .stage svg { width: 260px; height: 420px; }
+    .mood-idle .mouth-wow, .mood-idle .mouth-worry, .mood-idle .mouth-wink, .mood-idle .mouth-chaos,
+    .mood-idle .eye-wink, .mood-idle .spark { display: none; }
+    .mood-wow .mouth-idle, .mood-wow .mouth-worry, .mood-wow .mouth-wink, .mood-wow .mouth-chaos,
+    .mood-wow .eye-wink { display: none; }
+    .mood-worry .mouth-idle, .mood-worry .mouth-wow, .mood-worry .mouth-wink, .mood-worry .mouth-chaos,
+    .mood-worry .eye-wink, .mood-worry .spark { display: none; }
+    .mood-wink .mouth-idle, .mood-wink .mouth-wow, .mood-wink .mouth-worry, .mood-wink .mouth-chaos,
+    .mood-wink .eye-open-r, .mood-wink .spark { display: none; }
+    .mood-chaos .mouth-idle, .mood-chaos .mouth-wow, .mood-chaos .mouth-worry, .mood-chaos .mouth-wink,
+    .mood-chaos .eye-wink { display: none; }
+
+    .roster { display: grid; gap: 8px; margin-top: 10px; }
+    .roster button.item {
+      text-align: left; background: var(--raised); border: 1px solid var(--border); color: var(--fg);
+      border-radius: 10px; padding: 10px 12px;
+      display: flex; gap: 10px; align-items: center; width: 100%;
+    }
+    .hidden { display: none !important; }
+
+    .portrait-row { display: grid; grid-template-columns: 140px 96px 1fr; gap: 14px; align-items: start; }
+    @media (max-width: 640px) { .portrait-row { grid-template-columns: 1fr; } }
+    .portrait-frame, .token-frame { background: var(--inset); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .portrait-frame { width: 140px; height: 168px; }
+    .portrait-frame img, .token-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .token-frame { width: 96px; height: 96px; border-radius: 50%; box-shadow: 0 0 0 3px #c9a02a, 0 0 0 6px #2a1c16; }
+    .sheet-head { display: flex; gap: 16px; align-items: flex-start; }
+    .sheet-head .id { min-width: 0; flex: 1; }
+    .sheet-art { display: flex; gap: 10px; align-items: flex-start; }
+    .sheet-art .portrait-frame { width: 92px; height: 110px; }
+    .sheet-art .token-frame { width: 72px; height: 72px; }
+    .roster-token { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #c9a02a; background: var(--inset); flex: none; }
+    .file-btn { position: relative; overflow: hidden; }
+    .file-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    @media print {
+      .mascot-col, .steps, header.top .row, #workspace { display: none !important; }
+      .layout { grid-template-columns: 1fr; }
+      body { background: white; color: #111; }
+      .panel { border-color: #ccc; background: white; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div>
+        <div class="eyebrow">SPECIAL d20 · no safety net</div>
+        <h1 style="font-size:42px;line-height:0.9">SPECIAL Forge</h1>
+        <p class="sub">Roll 1s stay 1s. Totals are not padded to 35 or cut to 55. Nothing caps at 10.</p>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="btn-txt" type="button">Export TXT</button>
+        <button class="btn ghost" id="btn-json" type="button">Export JSON</button>
+        <button class="btn ghost" id="btn-print" type="button">Print sheet</button>
+        <button class="btn ghost" id="btn-example" type="button">Load example</button>
+        <button class="btn" id="btn-new" type="button">New character</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <div>
+        <div class="steps" id="steps"></div>
+        <section class="panel" id="workspace"></section>
+        <div style="height:14px"></div>
+        <section class="panel" id="sheet"></section>
+      </div>
+
+      <aside class="mascot-col">
+        <div class="mascot-card">
+          <div class="bubble">
+            <div class="who">Vela · floor boss</div>
+            <div id="vela-line">Park it. Let’s see what the dice actually did — no padding, no mercy.</div>
+          </div>
+          <div class="stage mood-idle" id="vela-stage">
+            <svg viewBox="0 0 220 360" aria-label="Vela, anime workshop mascot">
+              <defs>
+                <linearGradient id="suit" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#4a7ec4"/>
+                  <stop offset="0.45" stop-color="#2f5fa0"/>
+                  <stop offset="1" stop-color="#1a3a6e"/>
+                </linearGradient>
+                <linearGradient id="suitShine" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stop-color="#7aa4e0" stop-opacity="0.55"/>
+                  <stop offset="1" stop-color="#7aa4e0" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="hairg" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#fff3b0"/>
+                  <stop offset="0.35" stop-color="#f2d056"/>
+                  <stop offset="1" stop-color="#c99228"/>
+                </linearGradient>
+                <linearGradient id="skin" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#ffe1c8"/>
+                  <stop offset="1" stop-color="#f0b894"/>
+                </linearGradient>
+                <radialGradient id="bustShade" cx="50%" cy="35%" r="70%">
+                  <stop offset="0" stop-color="#5b8fd0"/>
+                  <stop offset="1" stop-color="#24487f"/>
+                </radialGradient>
+                <linearGradient id="hatg" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#ffe36a"/>
+                  <stop offset="1" stop-color="#c9a02a"/>
+                </linearGradient>
+              </defs>
+
+              <!-- boots -->
+              <path d="M68 328 l16 22 h-34 z" fill="#2a1c16"/>
+              <path d="M138 328 l16 22 h-34 z" fill="#2a1c16"/>
+              <path d="M58 338 h28 l-4 12 h-28 z" fill="#3d2a22"/>
+              <path d="M128 338 h28 l-4 12 h-28 z" fill="#3d2a22"/>
+
+              <!-- legs -->
+              <path d="M74 228 c-3 34-6 62 2 100 h22 c4-38 4-70 2-100 z" fill="url(#suit)"/>
+              <path d="M122 228 c-2 34 0 62 4 100 h22 c8-38 6-68 2-100 z" fill="url(#suit)"/>
+              <path d="M76 268 c8 4 14 4 20 0" fill="none" stroke="#e2c14a" stroke-width="2"/>
+              <path d="M124 268 c8 4 14 4 20 0" fill="none" stroke="#e2c14a" stroke-width="2"/>
+
+              <!-- hips / waist / torso -->
+              <path d="M66 148
+                       C54 168 50 196 58 220
+                       C64 238 82 248 110 248
+                       C138 248 156 236 162 218
+                       C170 194 166 168 154 148
+                       C142 128 78 128 66 148 Z" fill="url(#suit)"/>
+              <path d="M88 148 C78 168 76 188 82 210 C96 206 124 206 138 210 C144 188 142 168 132 148 Z" fill="url(#suitShine)"/>
+
+              <!-- yellow belt -->
+              <path d="M62 214 h96 c2 6-2 10-8 10 h-80 c-6 0-10-4-8-10 z" fill="#e2c14a"/>
+              <rect x="102" y="212" width="16" height="14" rx="2" fill="#f4d56a"/>
+              <rect x="106" y="216" width="8" height="6" rx="1" fill="#8a6a18"/>
+
+              <!-- bust — large, separate cups, deep V between -->
+              <ellipse cx="86" cy="164" rx="26" ry="24" fill="url(#bustShade)"/>
+              <ellipse cx="134" cy="164" rx="26" ry="24" fill="url(#bustShade)"/>
+              <ellipse cx="80" cy="156" rx="10" ry="8" fill="#7aa4e0" opacity="0.35"/>
+              <ellipse cx="128" cy="156" rx="10" ry="8" fill="#7aa4e0" opacity="0.35"/>
+
+              <!-- deep V cleavage -->
+              <path d="M98 138
+                       C96 150 100 168 110 196
+                       C120 168 124 150 122 138 Z" fill="url(#skin)"/>
+              <path d="M104 150 C108 166 110 178 110 192" fill="none" stroke="#e8a090" stroke-width="1.2" opacity="0.7"/>
+              <path d="M98 138 L110 198 L122 138" fill="none" stroke="#17325c" stroke-width="3.2" stroke-linejoin="round"/>
+              <path d="M110 138 L110 198" fill="none" stroke="#e2c14a" stroke-width="1.6"/>
+              <circle cx="110" cy="142" r="2.2" fill="#e2c14a"/>
+              <circle cx="110" cy="156" r="2.2" fill="#e2c14a"/>
+              <circle cx="110" cy="170" r="2.2" fill="#e2c14a"/>
+
+              <!-- collar wings -->
+              <path d="M86 136 L110 144 L72 150 Z" fill="#e2c14a"/>
+              <path d="M134 136 L110 144 L148 150 Z" fill="#e2c14a"/>
+
+              <!-- left arm on hip -->
+              <path d="M62 146 c-22 16-30 46-18 78" fill="none" stroke="url(#skin)" stroke-width="16" stroke-linecap="round"/>
+              <circle cx="46" cy="228" r="9" fill="url(#skin)"/>
+              <path d="M40 224 h16 v8 h-10 l-8 10 h-6 z" fill="url(#skin)"/>
+
+              <!-- right arm thumbs-up -->
+              <path d="M158 148 c22 10 30 38 16 78" fill="none" stroke="url(#skin)" stroke-width="16" stroke-linecap="round"/>
+              <circle cx="176" cy="228" r="10" fill="url(#skin)"/>
+              <path d="M170 214 h8 v-18 c0-7 10-7 10 1 v20 h-6 v6 h-12 z" fill="url(#skin)"/>
+
+              <!-- neck -->
+              <path d="M100 124 c2 16 4 20 10 22 c6-2 8-6 10-22 z" fill="url(#skin)"/>
+
+              <!-- hair back -->
+              <path d="M62 96
+                       C58 50 86 28 110 28
+                       C138 28 164 52 160 98
+                       C168 120 170 150 164 178
+                       C158 156 154 128 148 112
+                       C142 148 138 176 132 198
+                       C128 176 126 150 124 128
+                       C86 136 70 150 64 176
+                       C58 150 56 124 62 96 Z" fill="url(#hairg)"/>
+
+              <!-- head -->
+              <ellipse cx="110" cy="92" rx="34" ry="38" fill="url(#skin)"/>
+              <ellipse cx="96" cy="108" rx="8" ry="5" fill="#f4a39a" opacity="0.55"/>
+              <ellipse cx="124" cy="108" rx="8" ry="5" fill="#f4a39a" opacity="0.55"/>
+
+              <!-- bangs -->
+              <path d="M80 78 C86 58 98 50 110 50 C124 50 136 60 142 78
+                       C132 70 124 74 118 82 C114 70 106 68 100 80
+                       C96 70 88 68 80 78 Z" fill="url(#hairg)"/>
+              <path d="M78 88 C74 100 74 118 78 132 C84 118 86 104 86 92 Z" fill="url(#hairg)"/>
+              <path d="M142 88 C146 100 146 118 142 132 C136 118 134 104 134 92 Z" fill="url(#hairg)"/>
+
+              <!-- hat -->
+              <ellipse cx="110" cy="56" rx="40" ry="9" fill="#d4b03a"/>
+              <path d="M82 56 C86 32 98 22 110 22 C124 22 136 34 138 56 Z" fill="url(#hatg)"/>
+              <rect x="104" y="18" width="12" height="12" rx="2" fill="#f0d056"/>
+              <path d="M82 56 h56" fill="none" stroke="#8a6a18" stroke-width="1.5"/>
+
+              <!-- brows -->
+              <path d="M88 76 q12-8 22 0" fill="none" stroke="#c99228" stroke-width="2.4" stroke-linecap="round"/>
+              <path d="M114 76 q12-8 22 0" fill="none" stroke="#c99228" stroke-width="2.4" stroke-linecap="round"/>
+
+              <!-- left eye -->
+              <g class="eye-open-l">
+                <ellipse cx="96" cy="92" rx="10" ry="12" fill="#fff"/>
+                <ellipse cx="97" cy="94" rx="6.2" ry="7.4" fill="#3a6db8"/>
+                <ellipse cx="97" cy="95" rx="3.4" ry="4" fill="#1a2f58"/>
+                <circle cx="99" cy="90" r="2.4" fill="#fff"/>
+                <circle cx="93" cy="96" r="1.1" fill="#fff" opacity="0.8"/>
+              </g>
+              <!-- right eye -->
+              <g class="eye-open-r">
+                <ellipse cx="124" cy="92" rx="10" ry="12" fill="#fff"/>
+                <ellipse cx="125" cy="94" rx="6.2" ry="7.4" fill="#3a6db8"/>
+                <ellipse cx="125" cy="95" rx="3.4" ry="4" fill="#1a2f58"/>
+                <circle cx="127" cy="90" r="2.4" fill="#fff"/>
+                <circle cx="121" cy="96" r="1.1" fill="#fff" opacity="0.8"/>
+              </g>
+              <path class="eye-wink" d="M114 92 q12 10 22 0" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round"/>
+
+              <!-- tiny nose -->
+              <path d="M110 100 l3 5" fill="none" stroke="#d49a82" stroke-width="1.4" stroke-linecap="round"/>
+
+              <!-- mouths -->
+              <path class="mouth-idle" d="M102 112 q8 8 16 0" fill="none" stroke="#c45c4a" stroke-width="2.4" stroke-linecap="round"/>
+              <ellipse class="mouth-wow" cx="110" cy="114" rx="6" ry="7" fill="#7a3030"/>
+              <path class="mouth-worry" d="M102 116 q8-7 16 0" fill="none" stroke="#c45c4a" stroke-width="2.4" stroke-linecap="round"/>
+              <path class="mouth-wink" d="M102 110 q10 11 18 2" fill="none" stroke="#c45c4a" stroke-width="2.4" stroke-linecap="round"/>
+              <path class="mouth-chaos" d="M100 110 q5 10 10 2 q5 11 14-1" fill="none" stroke="#c45c4a" stroke-width="2.6" stroke-linecap="round"/>
+
+              <!-- chaos / wow sparks -->
+              <g class="spark" fill="#ffe36a">
+                <path d="M34 84 l4 10 10 4 -10 4 -4 10 -4-10 -10-4 10-4 z"/>
+                <path d="M186 70 l3 8 8 3 -8 3 -3 8 -3-8 -8-3 8-3 z"/>
+                <path d="M28 160 l3 7 7 3 -7 3 -3 7 -3-7 -7-3 7-3 z"/>
+              </g>
+            </svg>
+          </div>
+          <p class="sub" style="text-align:center;margin:0">Vela · original anime floor boss. Vault-suit cut, not Vault Girl.</p>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <div class="eyebrow">Roster</div>
+          <div class="roster" id="roster"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+const KEYS = ["STR","PE","EN","CH","IN","AG","LK"];
+const NAMES = {STR:"Strength",PE:"Perception",EN:"Endurance",CH:"Charisma",IN:"Intelligence",AG:"Agility",LK:"Luck"};
+const BLURB = {
+  STR:"Force, lift, melee, recoil",
+  PE:"Awareness and precision",
+  EN:"Stamina and resistance",
+  CH:"Presence and talk",
+  IN:"Reasoning and skill growth",
+  AG:"Speed, defense, AP",
+  LK:"Crits and coin-flips"
+};
+const SKILLS = [
+  ["smallGuns","Small Guns","round(1 + 0.8×AG)", s => Math.round(1 + 0.8*s.AG)],
+  ["bigGuns","Big Guns","round(0.4×AG)", s => Math.round(0.4*s.AG)],
+  ["energyWeapons","Energy Weapons","round(0.4×AG)", s => Math.round(0.4*s.AG)],
+  ["unarmed","Unarmed","round(6 + 0.4×(AG+STR))", s => Math.round(6 + 0.4*(s.AG+s.STR))],
+  ["meleeWeapons","Melee Weapons","round(4 + 0.4×(AG+STR))", s => Math.round(4 + 0.4*(s.AG+s.STR))],
+  ["throwing","Throwing","round(0.8×AG)", s => Math.round(0.8*s.AG)],
+  ["firstAid","First Aid","round(0.4×(PE+EN))", s => Math.round(0.4*(s.PE+s.EN))],
+  ["doctor","Doctor","round(1 + 0.2×(PE+IN))", s => Math.round(1 + 0.2*(s.PE+s.IN))],
+  ["sneak","Sneak","round(1 + 0.6×AG)", s => Math.round(1 + 0.6*s.AG)],
+  ["lockpick","Lockpick","round(2 + 0.2×(PE+AG))", s => Math.round(2 + 0.2*(s.PE+s.AG))],
+  ["steal","Steal","round(0.6×AG)", s => Math.round(0.6*s.AG)],
+  ["traps","Traps","round(2 + 0.2×(PE+AG))", s => Math.round(2 + 0.2*(s.PE+s.AG))],
+  ["science","Science","round(0.8×IN)", s => Math.round(0.8*s.IN)],
+  ["repair","Repair","round(0.6×IN)", s => Math.round(0.6*s.IN)],
+  ["pilot","Pilot","round(0.4×(AG+PE))", s => Math.round(0.4*(s.AG+s.PE))],
+  ["speech","Speech","CH", s => s.CH],
+  ["barter","Barter","round(0.8×CH)", s => Math.round(0.8*s.CH)],
+  ["gambling","Gambling","LK", s => s.LK],
+  ["outdoorsman","Outdoorsman","round(0.4×(EN+IN))", s => Math.round(0.4*(s.EN+s.IN))],
+];
+const BGS = [
+  {id:"laborer", name:"Laborer", spec:{STR:3,EN:1,PE:1}, skills:{meleeWeapons:2,repair:2,outdoorsman:1}, pitch:"Heavy work. Heavier tools."},
+  {id:"academic", name:"Academic", spec:{IN:4,PE:1}, skills:{science:2,doctor:2,firstAid:1}, pitch:"Books, labs, systems."},
+  {id:"soldier", name:"Soldier", spec:{STR:2,EN:2,PE:1}, skills:{smallGuns:2,bigGuns:2,outdoorsman:1}, pitch:"Drills and familiar iron."},
+  {id:"criminal", name:"Criminal", spec:{AG:3,LK:1,PE:1}, skills:{sneak:2,lockpick:2,steal:1}, pitch:"Quiet hands. Locked doors."},
+  {id:"merchant", name:"Merchant", spec:{CH:2,LK:2,PE:1}, skills:{barter:2,speech:2,gambling:1}, pitch:"Prices and a closing smile."},
+  {id:"rural", name:"Rural", spec:{EN:2,PE:1,AG:1,IN:1}, skills:{outdoorsman:2,repair:2,meleeWeapons:1}, pitch:"Weather and repair jobs."},
+  {id:"technician", name:"Technician", spec:{IN:3,AG:1,PE:1}, skills:{repair:2,science:2,smallGuns:1}, pitch:"Wiring and tolerances."},
+  {id:"performer", name:"Performer", spec:{CH:4,LK:1}, skills:{speech:2,gambling:2,steal:1}, pitch:"A room that leans in."},
+  {id:"scout", name:"Scout", spec:{PE:2,AG:2,EN:1}, skills:{sneak:2,outdoorsman:2,smallGuns:1}, pitch:"See it before it sees you."},
+  {id:"veteran", name:"Veteran", spec:{STR:2,EN:1,PE:1,LK:1}, skills:{smallGuns:2,bigGuns:2,repair:1}, pitch:"Old campaigns. Coming back."},
+];
+const TRAITS = {
+  finesse: {name:"Finesse", sum:"Wider crits, weaker melee", detail:"Critical Range +1 number. Melee/unarmed damage −4 (Finesse alone cannot take final weapon damage below 1)."},
+  gifted: {name:"Gifted", sum:"+1 every SPECIAL, −2 every skill", detail:"+1 all SPECIAL. −2 all skills at creation. Later skill points are untouched."},
+  skilled: {name:"Skilled", sum:"+2 every skill, slower perks", detail:"+2 all skills at creation. +1 skill point per level. Perk every 4 levels instead of 3."},
+  jinxed: {name:"Jinxed", sum:"Everyone crit-fails 18–20", detail:"Your crit-fail range is 18–20. While you are in a fight, every combatant uses 18–20."},
+  lifegiver: {name:"Lifegiver", sum:"+4 HP per level", detail:"+4 maximum HP per character level, including levels already gained."},
+};
+const STEPS = ["Dossier","SPECIAL","Background","Free +5","Traits","Tags","Review"];
+
+function empty(n=0){ const o={}; KEYS.forEach(k=>o[k]=n); return o; }
+function sum(o){ return KEYS.reduce((n,k)=>n+(+o[k]||0),0); }
+function d10(){ const a=new Uint32Array(1); crypto.getRandomValues(a); return (a[0]%10)+1; }
+function trunc(n,d){ return Math.trunc(n/d); }
+function uid(){ return crypto.randomUUID(); }
+
+function blank(){
+  return {
+    id: uid(), name:"", appearance:"", history:"", goals:"", notes:"", equipment:"",
+    portrait:"", token:"",
+    level:1, armorAc:0,
+    rolled: empty(0), free: empty(0), adjust: empty(0),
+    backgroundId:"laborer", traits:[], tagged:[],
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+}
+
+function bgSpec(c){
+  const b = BGS.find(x=>x.id===c.backgroundId);
+  const o = empty(0);
+  if(!b) return o;
+  KEYS.forEach(k => o[k] = b.spec[k]||0);
+  return o;
+}
+function finalSpecial(c){
+  const bg = bgSpec(c);
+  const g = c.traits.includes("gifted") ? 1 : 0;
+  const o = {};
+  KEYS.forEach(k => o[k] = (+c.rolled[k]||0)+(+bg[k]||0)+(+c.free[k]||0)+(+c.adjust[k]||0)+g);
+  return o;
+}
+function heal(en){
+  if(en>=15) return 6; if(en>=13) return 5; if(en>=11) return 4; if(en>=9) return 3; if(en>=6) return 2; return 1;
+}
+function critLow(luck, finesse){
+  const band = Math.floor((luck-1)/5);
+  return 20 - band - (finesse?1:0);
+}
+function critRange(low){
+  if(low > 20) return "none on a d20";
+  if(low >= 20) return "20";
+  if(low <= 1) return "1–20";
+  return low + "–20";
+}
+function derive(c){
+  const s = finalSpecial(c);
+  const bg = BGS.find(x=>x.id===c.backgroundId) || {skills:{}};
+  const gifted = c.traits.includes("gifted");
+  const skilled = c.traits.includes("skilled");
+  const finesse = c.traits.includes("finesse");
+  const life = c.traits.includes("lifegiver");
+  const traitMod = (gifted?-2:0)+(skilled?2:0);
+  const skills = {};
+  SKILLS.forEach(([id,name,formula,fn])=>{
+    const base = fn(s);
+    const b = bg.skills[id]||0;
+    const tag = c.tagged.includes(id)?4:0;
+    skills[id] = {id,name,formula,base,b,trait:traitMod,tag,total: base+b+traitMod+tag};
+  });
+  const interval = skilled?4:3;
+  let melee = s.STR-5; if(finesse) melee -= 4;
+  return {
+    s,
+    hp: 15 + s.STR + 2*s.EN + (c.level-1)*(3+trunc(s.EN,2)) + (life?4*c.level:0),
+    ap: 5 + trunc(s.AG,2),
+    ac: s.AG + (+c.armorAc||0),
+    carry: 25 + 25*s.STR,
+    melee,
+    poison: trunc(s.EN,2),
+    rad: trunc(s.EN,5),
+    seq: 2*s.PE,
+    heal: heal(s.EN),
+    sp: 5 + trunc(s.IN,2) + (skilled?1:0),
+    interval,
+    perks: Math.trunc(c.level/interval),
+    crit: critRange(critLow(s.LK, finesse)),
+    skills,
+    rolledTotal: sum(c.rolled),
+    finalTotal: sum(s),
+    freeLeft: 5 - sum(c.free)
+  };
+}
+
+function velaTake(c, d){
+  const s = d.s;
+  const lows = KEYS.filter(k => s[k] <= 2);
+  const highs = KEYS.filter(k => s[k] >= 12);
+  const ones = KEYS.filter(k => (c.rolled[k]||0) === 1);
+  let mood = "idle";
+  let line = "Cute array. Not padded, not trimmed. That’s the whole point of this desk.";
+
+  if(c.traits.includes("jinxed")){
+    mood = "chaos";
+    line = "Jinxed? Oh we are doing chaos today. Eighteen through twenty is a party and everybody’s invited.";
+  } else if(highs.length && s.CH >= 10){
+    mood = "wink";
+    line = "Charisma " + s.CH + " and you still look like that. Unfair. I’m staring. Build’s hot.";
+  } else if(d.finalTotal >= 58 || highs.length >= 2 || s.IN >= 14 || s.STR >= 14){
+    mood = "wow";
+    line = "Okay wow. Final array " + d.finalTotal + ". No cap of ten, and you actually used that. Recoil who?";
+  } else if(d.rolledTotal > 0 && (d.rolledTotal <= 28 || ones.length >= 2 || lows.length >= 3)){
+    mood = "worry";
+    line = "Rolled total " + d.rolledTotal + ". I would have padded this under the old net. We don’t. Own the ugly numbers.";
+  } else if(s.CH >= 9 || c.backgroundId === "performer"){
+    mood = "wink";
+    line = "Performer energy. Talk them into putting the gun down. Then steal the gun. I’m not judging.";
+  }
+
+  if(c.traits.includes("gifted") && mood !== "chaos"){
+    mood = "wow";
+    line = "Gifted: plus one to every letter, minus two to every skill. Pretty and mean. I respect it.";
+  } else if(c.traits.includes("finesse") && s.STR <= 5){
+    line = "Finesse on a noodle arm is a whole personality. Crits for days, hugs like a wet receipt.";
+  } else if(c.backgroundId === "academic" && s.IN >= 12){
+    mood = "wow";
+    line = "Academic with Intelligence " + s.IN + ". Skill points per level: " + d.sp + ". Nerd royalty. Kiss the chalkboard.";
+  } else if(c.backgroundId === "soldier" || c.backgroundId === "veteran"){
+    if(mood === "idle") line = "Rifle girl, rifle boy, whatever — Small Guns wants a tag. Don’t you dare tag Speech first.";
+  } else if(c.tagged.includes("speech") && c.tagged.includes("barter") && c.tagged.includes("gambling")){
+    mood = "wink";
+    line = "Speech, Barter, Gambling. You came here to talk, deal, and cheat. I’m in the front row.";
+  } else if(d.freeLeft > 0 && d.rolledTotal > 0 && mood === "idle"){
+    line = "You still have " + d.freeLeft + " free SPECIAL sitting on the table. Spend it. Or don’t. I’m not your mom.";
+  } else if(c.tagged.length === 3 && mood === "idle"){
+    line = "Three tags locked. Plus four each, then the background crumbs. Sheet’s starting to look like a person.";
+  } else if(d.rolledTotal === 0){
+    mood = "idle";
+    line = "Hit Roll Array. Seven d10s. Keep the 1s. Keep the 10s. I don’t do safety nets and I don’t do pity points.";
+  }
+
+  if(s.AG >= 12 && mood !== "chaos"){
+    line += " Agility " + s.AG + " means AP " + d.ap + ". You get to do extra things. Use them.";
+  }
+  return {mood, line};
+}
+
+let state = {
+  view: 0,
+  current: blank(),
+  list: []
+};
+
+function load(){
+  try {
+    const raw = localStorage.getItem("special-forge-v1");
+    if(raw){
+      const parsed = JSON.parse(raw);
+      state.list = parsed.list || [];
+      if(parsed.current) state.current = parsed.current;
+    }
+  } catch(e){}
+}
+function save(){
+  state.current.updatedAt = Date.now();
+  localStorage.setItem("special-forge-v1", JSON.stringify({list: state.list, current: state.current}));
+}
+
+function setRolled(k, v){ state.current.rolled[k] = v; paint(); }
+function setFree(k, v){
+  const next = {...state.current.free, [k]: v};
+  if(sum(next) > 5) return;
+  state.current.free = next;
+  paint();
+}
+function setAdjust(k, v){ state.current.adjust[k] = v; paint(); }
+
+function stepper(val, onchange, disablePlus){
+  const wrap = document.createElement("div");
+  wrap.className = "stepper";
+  const minus = document.createElement("button"); minus.type="button"; minus.textContent="−";
+  minus.onclick = () => onchange(val-1);
+  const inp = document.createElement("input");
+  inp.type="text"; inp.inputMode="numeric"; inp.value = String(val);
+  inp.onchange = () => {
+    const n = parseInt(inp.value, 10);
+    if(Number.isFinite(n)) onchange(n);
+  };
+  const plus = document.createElement("button"); plus.type="button"; plus.textContent="+";
+  plus.disabled = !!disablePlus;
+  plus.onclick = () => onchange(val+1);
+  wrap.append(minus, inp, plus);
+  return wrap;
+}
+
+function renderSteps(){
+  const el = document.getElementById("steps");
+  el.innerHTML = "";
+  STEPS.forEach((name,i)=>{
+    const b = document.createElement("button");
+    b.className = "step" + (i===state.view?" on":"");
+    b.textContent = (i+1) + " · " + name;
+    b.onclick = () => { state.view = i; paint(); };
+    el.appendChild(b);
+  });
+}
+
+function renderWorkspace(){
+  const el = document.getElementById("workspace");
+  const c = state.current;
+  const d = derive(c);
+  const v = state.view;
+  el.innerHTML = "";
+
+  if(v===0){
+    el.innerHTML = `<h2>Dossier</h2><p class="sub">Name the body. Add a face — the desk stamps a circle token for the table.</p>`;
+    const stack = document.createElement("div"); stack.className="stack"; stack.style.marginTop="12px";
+    stack.appendChild(portraitDesk(c));
+    const fields = [
+      ["name","Name","text"],
+      ["appearance","Appearance","area"],
+      ["history","History","area"],
+      ["goals","Goals","area"],
+      ["equipment","Equipment","area"],
+      ["level","Level","num"],
+      ["armorAc","Armor AC","num"],
+    ];
+    fields.forEach(([key,label,kind])=>{
+      const box = document.createElement("div");
+      box.innerHTML = `<label class="field">${label}</label>`;
+      if(kind==="area"){
+        const t = document.createElement("textarea");
+        t.value = c[key]||"";
+        t.oninput = () => { c[key]=t.value; save(); renderSheet(); talk(); };
+        box.appendChild(t);
+      } else {
+        const i = document.createElement("input");
+        i.type = kind==="num"?"number":"text";
+        i.value = c[key]??"";
+        i.oninput = () => { c[key] = kind==="num" ? (+i.value||0) : i.value; save(); renderSheet(); talk(); };
+        box.appendChild(i);
+      }
+      stack.appendChild(box);
+    });
+    el.appendChild(stack);
+  }
+
+  if(v===1){
+    const head = document.createElement("div");
+    head.innerHTML = `<h2>Roll SPECIAL</h2>
+      <p class="sub">Seven d10s. Keep every result. 1s stay 1s. 10s stay 10s. There is no floor of 35 and no ceiling of 55.</p>
+      <div class="row" style="margin:12px 0">
+        <button class="btn" id="roll-all">Roll array</button>
+        <button class="btn ghost" id="zero-all">Set rolls to 0</button>
+      </div>
+      <div class="note">Rolled total <b class="mono">${d.rolledTotal}</b> · Final total <b class="mono">${d.finalTotal}</b> after background, free points, traits. Type any integer. No min. No max.</div>`;
+    el.appendChild(head);
+    head.querySelector("#roll-all").onclick = () => {
+      KEYS.forEach(k => c.rolled[k] = d10());
+      paint();
+    };
+    head.querySelector("#zero-all").onclick = () => { c.rolled = empty(0); paint(); };
+    const grid = document.createElement("div"); grid.className="grid7"; grid.style.marginTop="12px";
+    KEYS.forEach(k=>{
+      const card = document.createElement("div"); card.className="stat";
+      const n = c.rolled[k]||0;
+      card.innerHTML = `<div class="k">${k}</div><div class="n ${n<=2?"low":n>=10?"high":""}">${n}</div><div class="bits">${NAMES[k]}<br>${BLURB[k]}</div>`;
+      const row = document.createElement("div");
+      row.appendChild(stepper(n, v => setRolled(k,v)));
+      const reroll = document.createElement("button");
+      reroll.className="btn ghost"; reroll.style.height="32px"; reroll.style.marginTop="6px"; reroll.style.width="100%";
+      reroll.textContent = "Reroll";
+      reroll.onclick = () => setRolled(k, d10());
+      card.appendChild(row); card.appendChild(reroll);
+      grid.appendChild(card);
+    });
+    el.appendChild(grid);
+  }
+
+  if(v===2){
+    el.innerHTML = `<h2>Background</h2><p class="sub">Exactly +5 SPECIAL, baked into the past. Skills listed are +2 / +2 / +1.</p>`;
+    const cards = document.createElement("div"); cards.className="cards"; cards.style.marginTop="12px";
+    BGS.forEach(b=>{
+      const btn = document.createElement("button");
+      btn.className = "pick" + (c.backgroundId===b.id?" on":"");
+      const spec = KEYS.filter(k=>b.spec[k]).map(k=>k+" +"+(b.spec[k])).join(" · ");
+      btn.innerHTML = `<b>${b.name}</b><span>${b.pitch}<br>${spec}</span>`;
+      btn.onclick = () => { c.backgroundId = b.id; paint(); };
+      cards.appendChild(btn);
+    });
+    el.appendChild(cards);
+  }
+
+  if(v===3){
+    el.innerHTML = `<h2>Free +5</h2>
+      <p class="sub">Spend five more SPECIAL anywhere. These may raise a score above 10. The budget is 5. The score itself is not capped.</p>
+      <div class="note">Remaining <b class="mono">${d.freeLeft}</b></div>`;
+    const grid = document.createElement("div"); grid.className="grid7"; grid.style.marginTop="12px";
+    KEYS.forEach(k=>{
+      const card = document.createElement("div"); card.className="stat";
+      card.innerHTML = `<div class="k">${k}</div><div class="n">${d.s[k]}</div><div class="bits">free ${c.free[k]||0}<br>final ${d.s[k]}</div>`;
+      card.appendChild(stepper(c.free[k]||0, v => setFree(k, Math.max(0,v)), d.freeLeft<=0 && (c.free[k]||0)>=0));
+      grid.appendChild(card);
+    });
+    el.appendChild(grid);
+    const adj = document.createElement("div");
+    adj.innerHTML = `<h3 style="margin:16px 0 8px">Campaign adjust</h3><p class="sub">Mutations, cyberware, aging, GM fiat. Any integer. Can go negative. Not part of the +5 budget.</p>`;
+    const g2 = document.createElement("div"); g2.className="grid7";
+    KEYS.forEach(k=>{
+      const card = document.createElement("div"); card.className="stat";
+      card.innerHTML = `<div class="k">${k}</div>`;
+      card.appendChild(stepper(c.adjust[k]||0, v => setAdjust(k,v)));
+      g2.appendChild(card);
+    });
+    adj.appendChild(g2); el.appendChild(adj);
+  }
+
+  if(v===4){
+    el.innerHTML = `<h2>Traits</h2><p class="sub">Pick as many as the table allows. Classic tables use two. This desk does not stop you.</p>`;
+    const cards = document.createElement("div"); cards.className="cards"; cards.style.marginTop="12px";
+    Object.entries(TRAITS).forEach(([id,t])=>{
+      const btn = document.createElement("button");
+      btn.className = "pick" + (c.traits.includes(id)?" on":"");
+      btn.innerHTML = `<b>${t.name}</b><span>${t.sum}<br>${t.detail}</span>`;
+      btn.onclick = () => {
+        if(c.traits.includes(id)) c.traits = c.traits.filter(x=>x!==id);
+        else c.traits = [...c.traits, id];
+        paint();
+      };
+      cards.appendChild(btn);
+    });
+    el.appendChild(cards);
+  }
+
+  if(v===5){
+    el.innerHTML = `<h2>Tag skills</h2><p class="sub">Three tags. Each gets +4 after the formula, background, and traits.</p>`;
+    const table = document.createElement("table"); table.className="skills"; table.style.marginTop="12px";
+    table.innerHTML = `<thead><tr><th></th><th>Skill</th><th>Formula</th><th>Total</th></tr></thead>`;
+    const tb = document.createElement("tbody");
+    SKILLS.forEach(([id,name,formula])=>{
+      const row = d.skills[id];
+      const tr = document.createElement("tr");
+      if(c.tagged.includes(id)) tr.className="tag";
+      tr.innerHTML = `<td></td><td>${name}</td><td class="mono" style="color:var(--subtle);font-size:12px">${formula}</td><td class="mono">${row.total}</td>`;
+      const cell = tr.children[0];
+      const b = document.createElement("button");
+      b.className = "btn ghost"; b.style.height="28px"; b.style.padding="0 8px";
+      b.textContent = c.tagged.includes(id) ? "TAG" : "tag";
+      b.onclick = () => {
+        if(c.tagged.includes(id)) c.tagged = c.tagged.filter(x=>x!==id);
+        else if(c.tagged.length < 3) c.tagged = [...c.tagged, id];
+        paint();
+      };
+      cell.appendChild(b);
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb); el.appendChild(table);
+  }
+
+  if(v===6){
+    el.innerHTML = `<h2>Review</h2><p class="sub">Save it to the roster. Dump a text sheet or a JSON packet. Print if you still like paper.</p>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="save-one">Save to roster</button>
+        <button class="btn ghost" id="exp-txt">Export TXT</button>
+        <button class="btn ghost" id="exp-json">Export JSON</button>
+        <button class="btn ghost" id="copy-json">Copy JSON</button>
+      </div>`;
+    el.querySelector("#save-one").onclick = () => {
+      const idx = state.list.findIndex(x=>x.id===c.id);
+      const copy = JSON.parse(JSON.stringify(c));
+      if(idx>=0) state.list[idx]=copy; else state.list.unshift(copy);
+      save(); renderRoster();
+    };
+    el.querySelector("#exp-txt").onclick = () => downloadTxt(c);
+    el.querySelector("#exp-json").onclick = () => downloadJson(c);
+    el.querySelector("#copy-json").onclick = async () => {
+      await navigator.clipboard.writeText(exportPayload(c));
+    };
+  }
+}
+
+function renderSheet(){
+  const c = state.current;
+  const d = derive(c);
+  const el = document.getElementById("sheet");
+  const bg = BGS.find(x=>x.id===c.backgroundId);
+  const mods = KEYS.map(k => {
+    const n = d.s[k];
+    return `<div class="stat"><div class="k">${k}</div><div class="n ${n<=2?"low":n>=11?"high":""}">${n}</div><div class="bits">${n-5>=0?"+":""}${n-5}</div></div>`;
+  }).join("");
+  const chips = [
+    ["HP", d.hp],["AP", d.ap],["AC", d.ac],["Sequence", d.seq],
+    ["Carry", d.carry+" lb"],["Melee", (d.melee>=0?"+":"")+d.melee],
+    ["Poison", d.poison],["Radiation", d.rad],
+    ["Heal/day", d.heal],["SP / lvl", d.sp],
+    ["Perks", d.perks+" / "+d.interval],["Crit", d.crit]
+  ].map(([l,v])=>`<div class="chip"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  const skillRows = SKILLS.map(([id])=>{
+    const row = d.skills[id];
+    const tag = c.tagged.includes(id) ? " class='tag'" : "";
+    return `<tr${tag}><td>${row.name}${c.tagged.includes(id)?" · TAG":""}</td><td class="mono" style="color:var(--subtle);font-size:12px">${row.formula}</td><td class="mono">${row.total}</td></tr>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="sheet-head">
+      <div class="sheet-art">
+        ${c.portrait ? `<div class="portrait-frame"><img alt="Portrait" src="${c.portrait}"></div>` : ""}
+        ${c.token ? `<div class="token-frame"><img alt="Token" src="${c.token}"></div>` : ""}
+      </div>
+      <div class="id">
+        <div class="eyebrow">Personnel dossier</div>
+        <h2 style="font-size:34px">${c.name.trim() || "Unnamed"}</h2>
+        <p class="sub">${bg?bg.name:"—"} · Level ${c.level} · rolled ${d.rolledTotal} → final ${d.finalTotal}</p>
+      </div>
+    </div>
+    <div class="grid7" style="margin:12px 0">${mods}</div>
+    <div class="chips">${chips}</div>
+    <table class="skills" style="margin-top:14px">
+      <thead><tr><th>Skill</th><th>Formula</th><th>Total</th></tr></thead>
+      <tbody>${skillRows}</tbody>
+    </table>
+    ${c.appearance||c.history||c.goals||c.equipment ? `<div class="two" style="margin-top:14px">
+      ${c.appearance?`<div><label class="field">Appearance</label><div>${esc(c.appearance)}</div></div>`:""}
+      ${c.history?`<div><label class="field">History</label><div>${esc(c.history)}</div></div>`:""}
+      ${c.goals?`<div><label class="field">Goals</label><div>${esc(c.goals)}</div></div>`:""}
+      ${c.equipment?`<div><label class="field">Equipment</label><div>${esc(c.equipment)}</div></div>`:""}
+    </div>`:""}
+  `;
+}
+
+function esc(s){ return String(s).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+
+function slugName(c){
+  const n = (c.name||"unnamed").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  return n || "unnamed";
+}
+function downloadBlob(filename, text, mime){
+  const blob = new Blob([text], {type: mime});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function exportPayload(c){
+  const d = derive(c);
+  const packet = {
+    format: "special-forge-v1",
+    exportedAt: new Date().toISOString(),
+    character: c,
+    derived: {
+      special: d.s,
+      hp: d.hp, ap: d.ap, ac: d.ac, sequence: d.seq, carry: d.carry,
+      melee: d.melee, poison: d.poison, radiation: d.rad, heal: d.heal,
+      skillPointsPerLevel: d.sp, perkInterval: d.interval, perks: d.perks,
+      criticalRange: d.crit, rolledTotal: d.rolledTotal, finalTotal: d.finalTotal,
+      skills: Object.fromEntries(Object.values(d.skills).map(s => [s.id, s]))
+    }
+  };
+  return JSON.stringify(packet, null, 2);
+}
+function downloadJson(c){
+  downloadBlob("special-" + slugName(c) + ".json", exportPayload(c), "application/json");
+}
+function downloadTxt(c){
+  const d = derive(c);
+  const bg = BGS.find(x=>x.id===c.backgroundId);
+  const lines = [];
+  lines.push("SPECIAL FORGE — PERSONNEL DOSSIER");
+  lines.push("================================");
+  lines.push("Name: " + (c.name.trim() || "Unnamed"));
+  lines.push("Background: " + (bg?bg.name:c.backgroundId||"—"));
+  lines.push("Level: " + c.level);
+  lines.push("Rolled total: " + d.rolledTotal + "  →  Final SPECIAL: " + d.finalTotal);
+  lines.push("Traits: " + (c.traits.map(id => TRAITS[id]?TRAITS[id].name:id).join(", ") || "none"));
+  lines.push("Tags: " + (c.tagged.map(id => (d.skills[id]||{}).name || id).join(", ") || "none"));
+  lines.push("Portrait: " + (c.portrait ? "yes" : "no"));
+  lines.push("Token: " + (c.token ? "yes" : "no"));
+  lines.push("");
+  lines.push("SPECIAL");
+  lines.push("-------");
+  KEYS.forEach(k => {
+    const mod = d.s[k]-5;
+    lines.push(
+      k + "  " + d.s[k] +
+      "   rolled " + (c.rolled[k]||0) +
+      "  bg " + (bgSpec(c)[k]||0) +
+      "  free " + (c.free[k]||0) +
+      "  adj " + (c.adjust[k]||0) +
+      "  mod " + (mod>=0?"+":"") + mod
+    );
+  });
+  lines.push("");
+  lines.push("DERIVED");
+  lines.push("-------");
+  lines.push("HP " + d.hp + "   AP " + d.ap + "   AC " + d.ac + "   Sequence " + d.seq);
+  lines.push("Carry " + d.carry + " lb   Melee " + (d.melee>=0?"+":"") + d.melee);
+  lines.push("Poison " + d.poison + "   Radiation " + d.rad + "   Heal/day " + d.heal);
+  lines.push("Skill points / level " + d.sp + "   Perks " + d.perks + " (every " + d.interval + ")");
+  lines.push("Critical range " + d.crit + "   Armor AC " + (c.armorAc||0));
+  lines.push("");
+  lines.push("SKILLS");
+  lines.push("------");
+  SKILLS.forEach(([id]) => {
+    const row = d.skills[id];
+    const tag = c.tagged.includes(id) ? "  [TAG]" : "";
+    lines.push(
+      (row.name + tag).padEnd(22) +
+      String(row.total).padStart(3) +
+      "    " + row.formula +
+      (row.b ? "  bg+" + row.b : "") +
+      (row.trait ? "  trait" + (row.trait>0?"+":"") + row.trait : "") +
+      (row.tag ? "  tag+" + row.tag : "")
+    );
+  });
+  if(c.appearance){ lines.push(""); lines.push("APPEARANCE"); lines.push(c.appearance); }
+  if(c.history){ lines.push(""); lines.push("HISTORY"); lines.push(c.history); }
+  if(c.goals){ lines.push(""); lines.push("GOALS"); lines.push(c.goals); }
+  if(c.equipment){ lines.push(""); lines.push("EQUIPMENT"); lines.push(c.equipment); }
+  if(c.notes){ lines.push(""); lines.push("NOTES"); lines.push(c.notes); }
+  lines.push("");
+  lines.push("Exported " + new Date().toISOString());
+  downloadBlob("special-" + slugName(c) + ".txt", lines.join("\n"), "text/plain;charset=utf-8");
+}
+
+function coverSquare(img, size){
+  const canvas = document.createElement("canvas");
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const scale = Math.max(size/img.width, size/img.height);
+  const w = img.width * scale, h = img.height * scale;
+  ctx.drawImage(img, (size-w)/2, (size-h)/2, w, h);
+  return canvas;
+}
+function makePortraitData(img){
+  const max = 640;
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.84);
+}
+function makeTokenData(img){
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#121310";
+  ctx.fillRect(0,0,size,size);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size/2 - 10, 0, Math.PI*2);
+  ctx.closePath();
+  ctx.clip();
+  const sq = coverSquare(img, size);
+  ctx.drawImage(sq, 0, 0);
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size/2 - 6, 0, Math.PI*2);
+  ctx.strokeStyle = "#e2c14a";
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size/2 - 14, 0, Math.PI*2);
+  ctx.strokeStyle = "#2a1c16";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  return canvas.toDataURL("image/png");
+}
+function readImageFile(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+function portraitDesk(c){
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<label class="field">Portrait + circle token</label>`;
+  const row = document.createElement("div");
+  row.className = "portrait-row";
+  const pframe = document.createElement("div");
+  pframe.className = "portrait-frame";
+  pframe.innerHTML = c.portrait ? `<img alt="Portrait" src="${c.portrait}">` : `<div style="height:100%;display:grid;place-items:center;color:var(--subtle);font-size:12px;padding:8px;text-align:center">No face yet</div>`;
+  const tframe = document.createElement("div");
+  tframe.className = "token-frame";
+  tframe.innerHTML = c.token ? `<img alt="Token" src="${c.token}">` : `<div style="height:100%;display:grid;place-items:center;color:var(--subtle);font-size:11px;text-align:center;padding:8px">Token</div>`;
+  const actions = document.createElement("div");
+  actions.className = "stack";
+  actions.innerHTML = `<p class="sub" style="margin:0">Upload a photo. The desk crops a square and stamps a gold-ring token for minis / VTT.</p>
+    <div class="row">
+      <label class="btn file-btn">Add portrait<input type="file" accept="image/*"></label>
+      <button class="btn ghost" type="button" id="clear-port">Clear</button>
+    </div>`;
+  const input = actions.querySelector("input[type=file]");
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if(!file) return;
+    try {
+      const img = await readImageFile(file);
+      c.portrait = makePortraitData(img);
+      c.token = makeTokenData(img);
+      save(); paint();
+    } catch(err){
+      alert("Could not read that image.");
+    }
+  };
+  actions.querySelector("#clear-port").onclick = () => {
+    c.portrait = ""; c.token = ""; save(); paint();
+  };
+  row.append(pframe, tframe, actions);
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function talk(){
+  const take = velaTake(state.current, derive(state.current));
+  document.getElementById("vela-line").textContent = take.line;
+  const stage = document.getElementById("vela-stage");
+  stage.className = "stage mood-" + take.mood;
+}
+
+function renderRoster(){
+  const el = document.getElementById("roster");
+  el.innerHTML = "";
+  if(!state.list.length){
+    el.innerHTML = `<p class="sub">No saved dossiers yet.</p>`;
+    return;
+  }
+  state.list.forEach(ch=>{
+    const b = document.createElement("button");
+    b.className="item";
+    const d = derive(ch);
+    b.innerHTML = `${ch.token?`<img class="roster-token" alt="" src="${ch.token}">`:""}<div><b>${esc(ch.name||"Unnamed")}</b><div class="sub">${ch.backgroundId} · ${d.finalTotal} SPECIAL · HP ${d.hp}</div></div>`;
+    b.onclick = () => { state.current = JSON.parse(JSON.stringify(ch)); paint(); };
+    el.appendChild(b);
+  });
+}
+
+function paint(){
+  save();
+  renderSteps();
+  renderWorkspace();
+  renderSheet();
+  renderRoster();
+  talk();
+}
+
+document.getElementById("btn-new").onclick = () => { state.current = blank(); state.view = 0; paint(); };
+document.getElementById("btn-print").onclick = () => window.print();
+document.getElementById("btn-txt").onclick = () => downloadTxt(state.current);
+document.getElementById("btn-json").onclick = () => downloadJson(state.current);
+document.getElementById("btn-example").onclick = () => {
+  state.current = blank();
+  state.current.name = "Rook Hale";
+  state.current.appearance = "Split knuckle, mended coat, a face that has lifted crates.";
+  state.current.history = "Freight, then a tour, then the same tools on a different road.";
+  state.current.goals = "Stay useful. Keep the nearest people alive.";
+  state.current.equipment = "Knife. Work kit. A service pistol if the table allows it.";
+  state.current.rolled = {STR:6,PE:7,EN:5,CH:6,IN:8,AG:7,LK:6};
+  state.current.backgroundId = "laborer";
+  state.current.free = {STR:0,PE:0,EN:0,CH:1,IN:1,AG:2,LK:1};
+  state.current.tagged = ["meleeWeapons","repair","smallGuns"];
+  state.view = 6;
+  paint();
+};
+
+load();
+paint();
+</script>
+</body>
+</html>
