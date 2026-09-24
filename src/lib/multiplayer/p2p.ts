@@ -117,6 +117,7 @@ export class P2PRoom {
    * room: the loop and timers start regardless and the next poll retries.
    */
   async join(): Promise<void> {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     try {
       await this.pollOnce();
     } catch {
