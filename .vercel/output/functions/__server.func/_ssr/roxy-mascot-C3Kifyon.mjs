@@ -1,7 +1,7 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { n as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { _ as Link } from "../_libs/@tanstack/react-router+[...].mjs";
-import { y as require_jsx_runtime } from "../_libs/@react-three/drei+[...].mjs";
+import { S as require_jsx_runtime } from "../_libs/@react-three/drei+[...].mjs";
 import { g as FolderOpen, l as Plus } from "../_libs/lucide-react.mjs";
 import { b as SPECIAL_META, k as cn, n as Button, y as SPECIAL_KEYS } from "./store-CHBbC2-O.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/roxy-mascot-C3Kifyon.js

@@ -50,18 +50,20 @@ export function RenoSighting({
       </h3>
       <p className="mt-1 text-sm text-muted">{sight.reason}</p>
       <p className="mt-1 text-sm text-fg">
-        {sight.foeNames.join(", ")} on the table.
-        {sight.allyNames?.length
-          ? ` With you: ${sight.allyNames.join(", ")}. They have their own sheet and they act on sequence.`
-          : ""}{" "}
-        Green hexes are the way back to the street.
+        {sight.foeNames.join(", ")} {sight.map.cells.length > 200 ? "are already on this block." : "on the table."}
+        {sight.allyNames?.length ? ` With you: ${sight.allyNames.join(", ")}.` : ""}{" "}
+        {sight.map.cells.length > 200
+          ? "The fight is a 40 by 40 hex square of this place. The street stays the street. Buildings stay buildings. No turns."
+          : "Green hexes are the way back to the street."}
       </p>
-      <div className="mt-3">
-        <RenoTable board={sight.map} units={units} night={sight.lighting < 0} disabled />
-      </div>
+      {sight.map.cells.length > 200 ? null : (
+        <div className="mt-3">
+          <RenoTable board={sight.map} units={units} night={sight.lighting < 0} disabled />
+        </div>
+      )}
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Button onClick={() => onChoice("fight")} className="min-h-11">
-          Sequence. Fight.
+          Fight here.
         </Button>
         {sight.spotted ? (
           <Button variant="secondary" onClick={() => onChoice("talk")} className="min-h-11">

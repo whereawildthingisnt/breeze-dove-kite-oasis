@@ -1,3 +1,4 @@
+import { walkerBeat } from "./dates";
 import { emptyPulse, FAMILY_PROFILE, venueIn } from "./city-sim";
 import { SOUL_BY_ID, type SoulDef } from "./ecosystem";
 import { doingForRole, schedulePoint, streetRole } from "./schedules";
@@ -19,6 +20,7 @@ export interface StreetInteraction {
   job?: Omit<StreetJob, "stage" | "giver" | "from">;
   giver?: string;
   flag?: "richard-named";
+  spend?: number;
 }
 
 function storyOf(life: RenoLife) {
@@ -76,8 +78,21 @@ export function handleStreetInteraction(actor: StreetActor, life: RenoLife): Str
   const door = STREET_NPCS.find((n) => n.id === actor.id);
   const lines: string[] = [];
   let flag: StreetInteraction["flag"];
+  let spend: number | undefined;
   const story = storyOf(life);
   const night = life.hour >= 20 || life.hour < 6;
+
+  if (soul?.role === "walker") {
+    const beat = walkerBeat(soul, life, life.npcMemory?.[actor.id]?.last);
+    return {
+      lines: beat.lines.slice(0, 8),
+      moodDelta: 1,
+      last: beat.last,
+      offerJob: false,
+      spend: beat.spend,
+      giver: actor.name,
+    };
+  }
 
   let doing = "Standing here.";
   let where = "this block";
@@ -131,6 +146,10 @@ export function handleStreetInteraction(actor: StreetActor, life: RenoLife): Str
     lines.push("On the floor because a day wage will not rent the week. The stool costs more if they sit.");
   } else if (soul?.role === "porter") {
     lines.push("Bike, keys, or the night desk. Moves people who do not know the streets, and charges them for not knowing.");
+  } else if (soul?.role === "dancer" && soul.pitch && soul.price) {
+    const onFloor = life.hour >= 8 || life.hour < 4;
+    lines.push(onFloor ? soul.pitch : "She's off the floor. The ask comes back with the lights.");
+    if (onFloor) spend = soul.price;
   } else if (soul?.role === "guest") {
     lines.push("Hotel guest. The casino is the other half of the room key.");
   }
@@ -164,5 +183,6 @@ export function handleStreetInteraction(actor: StreetActor, life: RenoLife): Str
     job: offered,
     giver: actor.name,
     flag,
+    spend,
   };
 }

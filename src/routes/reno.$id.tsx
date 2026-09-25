@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { FolderOpen, ScrollText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { RenoCity3D } from "@/components/reno-city-3d";
-import { RenoCombat } from "@/components/reno-combat";
+import { FieldFight, RenoCombat } from "@/components/reno-combat";
 import { RenoDesk } from "@/components/reno-desk";
 import { RenoSighting } from "@/components/reno-sighting";
 import { AngelaTalk } from "@/components/angela-talk";
@@ -14,6 +14,7 @@ import { RenoIntel } from "@/components/reno-intel";
 import { RenoAdvance } from "@/components/reno-advance";
 import { Button } from "@/components/ui/button";
 import { BUILDING_BY_ID } from "@/lib/reno/city";
+import { approachPoint } from "@/lib/reno/nav";
 import { applyAction } from "@/lib/reno/sim";
 import { useReno } from "@/lib/reno/store";
 import type { RenoAction } from "@/lib/reno/types";
@@ -35,7 +36,6 @@ function RenoPage() {
   const setLife = useReno((s) => s.setLife);
   const renoHydrated = useReno((s) => s.hydrated);
   const setRenoHydrated = useReno((s) => s.setHydrated);
-  const [walkTo, setWalkTo] = useState<{ x: number; z: number } | null>(null);
   const [pane, setPane] = useState<"street" | "pack" | "city" | "level">("street");
 
   useEffect(() => {
@@ -49,15 +49,33 @@ function RenoPage() {
   }, [character, ensure, renoHydrated]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    let acc = 0;
+    let since = 0;
+    let last = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
+      const dt = Math.min(250, now - last);
+      last = now;
+      frame = window.requestAnimationFrame(step);
       const current = useReno.getState().lives[id];
-      if (!current || current.dead || current.combat || current.sighting || current.dialogue || current.loot) return;
+      if (!current || current.dead) return;
+      const waiting = Boolean(current.combat || current.sighting || current.dialogue || current.loot);
+      const pace = current.clock ?? 1;
+      if (waiting || pace <= 0) return;
+      acc += dt * pace;
+      since += dt;
+      if (since < 200 || acc < 1000) return;
+      const seconds = Math.min(3600, Math.floor(acc / 1000));
+      acc -= seconds * 1000;
+      since = 0;
       const sheet = useRoster.getState().get(id);
       if (!sheet) return;
-      const result = applyAction(current, sheet, { type: "tickMinute" });
+      const result = applyAction(current, sheet, { type: "tickClock", seconds });
       useReno.getState().setLife(result.life);
-    }, 10000);
-    return () => window.clearInterval(timer);
+      if (result.character !== sheet) useRoster.getState().upsert(result.character);
+    };
+    frame = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frame);
   }, [id]);
 
   if (!rosterHydrated || !renoHydrated) {
@@ -104,7 +122,6 @@ function RenoPage() {
   const now = life;
 
   function act(action: RenoAction) {
-    if (action.type === "travel" || action.type === "arrive") setWalkTo(null);
     const currentLife = useReno.getState().lives[sheet.id] ?? now;
     const currentSheet = useRoster.getState().get(sheet.id) ?? sheet;
     const result = applyAction(currentLife, currentSheet, action);
@@ -115,6 +132,14 @@ function RenoPage() {
   const derived = derive(sheet);
   const inspecting = life.inspecting ? BUILDING_BY_ID[life.inspecting] : null;
   const locked = Boolean(life.combat || life.loot || life.sighting || life.dialogue);
+  const pace = life.clock ?? 1;
+  const speeds = [
+    { pace: 0, label: "Hold" },
+    { pace: 1, label: "1×" },
+    { pace: 5, label: "5×" },
+    { pace: 15, label: "15×" },
+    { pace: 60, label: "60×" },
+  ];
   const panes = [
     { id: "street" as const, label: "Street" },
     { id: "pack" as const, label: "Pack" },
@@ -139,14 +164,31 @@ function RenoPage() {
               {sheet.name.trim() || "Unnamed"}
             </h1>
           </Link>
-          <p className="font-mono text-[11px] tracking-wide text-subtle uppercase sm:ml-2">
-            {clockLabel(life)}
-          </p>
+          <div className="min-w-0 sm:ml-2">
+            <p className="font-mono text-[11px] tracking-wide text-subtle uppercase">
+              {clockLabel(life)}
+              {locked ? " · time held" : pace === 0 ? " · held" : pace === 1 ? " · real time" : ` · ${pace}×`}
+            </p>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {speeds.map((speed) => (
+                <Button
+                  key={speed.pace}
+                  size="sm"
+                  variant={pace === speed.pace ? "secondary" : "ghost"}
+                  className="min-h-11 px-2 font-mono"
+                  title={speed.pace === 1 ? "One Reno second is one real second" : speed.pace === 0 ? "Stop the clock" : `${speed.pace} Reno seconds per real second`}
+                  onClick={() => act({ type: "setClock", pace: speed.pace })}
+                >
+                  {speed.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <Stat chip="HP" value={`${life.hp}/${life.hpMax}`} warn={life.hp <= life.hpMax / 4} />
             <Stat chip="Caps" value={String(life.caps)} />
             <Stat chip="Heat" value={String(Math.round(life.heat))} warn={life.heat >= 40} />
-            <Stat chip="Warrant" value={String(Math.round(life.warrant ?? 0))} warn={(life.warrant ?? 0) >= 32} />
+            <Stat chip="Code" value={String(Math.round(life.warrant ?? 0))} warn={(life.warrant ?? 0) >= 32} />
             <Stat chip="Fame" value={String(Math.round(life.fame))} />
             <Stat chip="Regard" value={String(Math.round(life.regard ?? 0))} />
             <Button variant="ghost" size="sm" asChild>
@@ -170,9 +212,11 @@ function RenoPage() {
           <div className="reno-stage">
             <RenoCity3D
               life={life}
-              disabled={Boolean(life.combat || life.dialogue || life.sighting || life.loot || life.insideId)}
-              walkTo={walkTo}
+              disabled={Boolean((life.combat && !life.combat.field) || life.dialogue || life.sighting || life.loot || life.insideId)}
               inspecting={life.inspecting}
+              onGround={(x, z) => act({ type: "navigate", x, z, label: "that corner" })}
+              onNavArrive={() => act({ type: "navArrive" })}
+              onNavCancel={() => act({ type: "cancelNav" })}
               onInspect={(building) => act({ type: "inspect", building })}
               onArrive={(district, x, z) => {
                 if (district === useReno.getState().lives[sheet.id]?.district) return;
@@ -181,9 +225,20 @@ function RenoPage() {
               onWalkTick={(x, z) => act({ type: "walkTick", x, z })}
               onStreetContact={(hit) => act({ type: "streetContact", ...hit })}
               onTalk={(actor) => act({ type: "streetTalk", actorId: actor.id })}
-              onCombatHex={(q, r) => act({ type: "combat", move: "hex-step", q, r })}
+              onCombatHex={(q, r) => act({ type: "combat", move: life.combat?.field ? "field-walk" : "hex-step", q, r })}
+              onFieldTick={() => {
+                const cur = useReno.getState().lives[sheet.id];
+                if (cur?.combat?.field && !cur.combat.result) act({ type: "combat", move: "field-tick" });
+              }}
+              onRise={() => act({ type: "rise" })}
             />
-            {life.combat?.onMap ? (
+            {life.combat?.field ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-2">
+                <div className="pointer-events-auto mx-auto max-w-lg">
+                  <FieldFight combat={life.combat} onMove={(move) => act({ type: "combat", move })} />
+                </div>
+              </div>
+            ) : life.combat?.onMap ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 max-h-[48%] overflow-auto p-2 lg:hidden">
                 <div className="pointer-events-auto">
                   <RenoCombat
@@ -237,7 +292,10 @@ function RenoPage() {
                     night={isNight(life)}
                     district={life.district}
                     onClose={() => act({ type: "inspect", building: null })}
-                    onWalk={() => setWalkTo({ x: inspecting.x, z: inspecting.z })}
+                    onWalk={() => {
+                      const spot = approachPoint(inspecting);
+                      act({ type: "navigate", x: spot.x, z: spot.z, label: inspecting.name });
+                    }}
                     onEnter={() => act({ type: "enter" })}
                     onMill={() => act({ type: "mill" })}
                   />
@@ -251,6 +309,8 @@ function RenoPage() {
                   life={life}
                   night={isNight(life)}
                   onAct={(streetAct) => act({ type: "street", act: streetAct })}
+                  onLinger={() => act({ type: "linger" })}
+                  onPrivate={(dancer) => act({ type: "privateDance", dancer })}
                   onExit={() => act({ type: "exit" })}
                 />
               </div>
@@ -291,13 +351,20 @@ function RenoPage() {
                 night={isNight(life)}
                 district={life.district}
                 onClose={() => act({ type: "inspect", building: null })}
-                onWalk={() => setWalkTo({ x: inspecting.x, z: inspecting.z })}
+                onWalk={() => {
+                  const spot = approachPoint(inspecting);
+                  act({ type: "navigate", x: spot.x, z: spot.z, label: inspecting.name });
+                }}
                 onEnter={() => act({ type: "enter" })}
                 onMill={() => act({ type: "mill" })}
               />
             </div>
           ) : null}
-          {life.combat?.onMap ? (
+          {life.combat?.field ? (
+            <p className="rounded-xl bg-surface p-4 text-sm text-muted shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">
+              This fight is the block you are standing on. Forty hexes by forty. The street is the street. Buildings are walls. Walk with WASD. Strike when they are close. Green hexes at the edge let you leave. Whoever falls stays on the ground.
+            </p>
+          ) : life.combat?.onMap ? (
             <div className="hidden lg:block">
               <RenoCombat
                 combat={life.combat}
@@ -317,8 +384,8 @@ function RenoPage() {
             </p>
           ) : life.sighting ? (
             <p className="rounded-xl bg-surface p-4 text-sm text-muted shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">
-              You saw them on the street before the hexes dropped. Talk, slip past, or take the first sequence.
-              This is not a random encounter. They were already walking.
+              You saw them on this block before anyone swung. Talk, slip past, or fight where you stand.
+              Forty hexes by forty. The street and the buildings stay.
             </p>
           ) : life.dialogue ? (
             <p className="rounded-xl bg-surface p-4 text-sm text-muted shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">

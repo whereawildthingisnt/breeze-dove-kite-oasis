@@ -161,7 +161,7 @@ export function seedMarks(): Mark[] {
       name: "Vault City tourist",
       district: "virgin",
       wealth: 520,
-      title: "Clean coat. A cop who wants a donut more than a report.",
+      title: "Clean coat. Vault money that does not know the code yet.",
       mood: "cold",
     },
     {

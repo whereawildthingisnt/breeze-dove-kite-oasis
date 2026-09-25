@@ -1,12 +1,22 @@
-/** 1 world unit = 1 meter. People are 5'9". */
+/** 1 world unit = 1 meter. People are 5'9". Cars are a real sedan. */
 export const HUMAN_M = 1.7526;
-export const HUMAN_W = 0.62;
+export const HUMAN_W = 0.48;
 export const DOOR_H = 2.13;
 export const DOOR_W = 0.9;
-export const CAR_L = 4.6;
-export const CAR_W = 1.78;
-export const CAR_H = 1.48;
+export const CAR_L = 4.72;
+export const CAR_W = 1.82;
+export const CAR_H = 1.46;
 export const MILE = 1609;
+/** Floor to floor, including the slab. */
+export const STORY = 3.15;
+/** Curb to building face. */
+export const SIDEWALK = 2.4;
+/** Typical stall: car plus a step so doors can open. */
+export const PARK_GAP = CAR_L + 2.2;
+
+export function floors(n: number): number {
+  return Math.round(n * STORY * 10) / 10;
+}
 
 export interface CityRun {
   id: string;
@@ -20,7 +30,7 @@ export interface CityRun {
 }
 
 export const RUNS: CityRun[] = [
-  { id: "virgin", ax: -90, az: 1.6, bx: 140, bz: 1.6, speed: 0.04, phase: 0.1, color: "#3a3e44" },
+  { id: "virgin", ax: -780, az: 1.6, bx: 820, bz: 1.6, speed: 0.006, phase: 0.1, color: "#3a3e44" },
   { id: "main", ax: 1.6, az: -40, bx: 1.6, bz: 150, speed: 0.035, phase: 0.4, color: "#6a3030" },
   { id: "second", ax: -70, az: 56.4, bx: 120, bz: 56.4, speed: 0.03, phase: 0.7, color: "#2c3a34" },
   { id: "north", ax: 22, az: -200, bx: 22, bz: -200 - MILE, speed: 0.02, phase: 0.2, color: "#4a4038" },

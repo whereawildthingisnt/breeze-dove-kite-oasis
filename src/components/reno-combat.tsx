@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { reachableFrom, type HexUnitView } from "@/components/reno-hex-map";
 import { RenoTable } from "@/components/reno-table";
 import { AIMED_MELEE, AIMED_RANGED, foeOf, playerOf, sideOf, toHitInfo } from "@/lib/reno/combat";
+import { playGunshot } from "@/lib/reno/shots";
 import { FOE_TOKEN } from "@/lib/reno/actor";
 import { hexKey } from "@/lib/reno/hex";
 import type { BodyPart, CombatMove, CombatState, Combatant } from "@/lib/reno/types";
@@ -62,23 +63,31 @@ export function RenoCombat({
   const stimpaks = countItem(character.loadout, "stimpak");
   const playerTurn = !combat.result && combat.order[combat.turn] === "player";
   const [aiming, setAiming] = useState(false);
+  const heard = useRef(combat.bangs ?? 0);
+  useEffect(() => {
+    const n = combat.bangs ?? 0;
+    const extra = n - heard.current;
+    heard.current = n;
+    for (let i = 0; i < extra; i++) window.setTimeout(() => playGunshot(), i * 80);
+  }, [combat.bangs]);
   const melee = player?.weaponSkill === "unarmed" || player?.weaponSkill === "melee";
   const table = melee ? AIMED_MELEE : AIMED_RANGED;
   const tokens = FOE_TOKEN;
   const activeId = combat.order[combat.turn];
   const active = combat.combatants.find((c) => c.id === activeId);
   const units: HexUnitView[] = combat.combatants
-    .filter((c) => c.hp > 0 && !c.fled)
+    .filter((c) => !c.fled)
     .map((c) => ({
       id: c.id,
       q: c.hexQ,
       r: c.hexR,
-      label: c.player ? "You" : c.name.split(" ")[0] ?? c.name,
+      label: c.hp <= 0 ? "Dead" : c.player ? "You" : c.name.split(" ")[0] ?? c.name,
       player: c.player,
       side: sideOf(c),
       hp: c.hp,
       hpMax: c.hpMax,
-      down: c.down,
+      down: c.down || c.hp <= 0,
+      dead: c.hp <= 0,
       token: tokens[c.kind] ?? (c.player ? tokens.player : tokens.tough),
     }));
   const blocked = new Set(
@@ -269,6 +278,55 @@ export function RenoCombat({
       )}
       </div>
       </div>
+    </div>
+  );
+}
+
+export function FieldFight({
+  combat,
+  onMove,
+}: {
+  combat: CombatState;
+  onMove: (move: CombatMove) => void;
+}) {
+  const player = playerOf(combat);
+  const foes = combat.combatants.filter((c) => sideOf(c) === "foe" && !c.fled);
+  const heard = useRef(combat.bangs ?? 0);
+  useEffect(() => {
+    const n = combat.bangs ?? 0;
+    const extra = n - heard.current;
+    heard.current = n;
+    for (let i = 0; i < extra; i++) window.setTimeout(() => playGunshot(), i * 80);
+  }, [combat.bangs]);
+  const cooling = (player?.cool ?? 0) > 0;
+  return (
+    <div className="rounded-xl bg-bg/90 p-3 shadow-[0_0_0_1px_rgba(236,234,227,0.12)]">
+      <p className="font-mono text-[10px] tracking-[0.18em] text-subtle uppercase">
+        This block · 40×40 · no turns
+      </p>
+      <p className="mt-1 text-sm text-muted">
+        Walk the street. Buildings stop you. Green edge hexes leave the fight. A body on the ground is dead.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button size="sm" disabled={cooling || Boolean(combat.result)} onClick={() => onMove("attack")}>
+          {cooling ? "Recovering" : player?.weaponSkill === "guns" ? "Shoot" : "Strike"}
+        </Button>
+        <Button size="sm" variant="secondary" disabled={Boolean(combat.result)} onClick={() => onMove("flee")}>
+          Break off
+        </Button>
+      </div>
+      <ul className="mt-2 space-y-1">
+        {foes.map((f) => (
+          <li key={f.id} className="flex items-center justify-between gap-2 font-mono text-[11px] text-muted">
+            <span className={f.hp <= 0 ? "text-danger" : ""}>
+              {f.name}
+              {f.hp <= 0 ? " · on the ground" : ""}
+            </span>
+            <span>{Math.max(0, f.hp)} hp</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-subtle">{combat.log[combat.log.length - 1]}</p>
     </div>
   );
 }

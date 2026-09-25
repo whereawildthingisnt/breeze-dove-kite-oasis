@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { hexToPixel } from "@/lib/reno/hex";
 import type { EncounterSetting, HexBoard } from "@/lib/reno/types";
 import type { HexUnitView } from "@/components/reno-hex-map";
+import { woundTexture } from "@/lib/reno/wound";
 
 const HEX = 0.86;
 const CUTOUTS = new Map<string, THREE.Texture>();
@@ -87,7 +88,8 @@ function Mini({
   });
   const base =
     unit.side === "ally" ? "#7d9a78" : unit.side === "player" || unit.player ? "#c5cdc8" : "#c45c4a";
-  const height = unit.down ? 1.05 : 1.85;
+  const height = unit.dead ? 0.42 : unit.down ? 1.05 : 1.85;
+  const wide = unit.dead ? 1.7 : 0.95;
 
   return (
     <group
@@ -112,11 +114,17 @@ function Mini({
         <ringGeometry args={[0.46, 0.58, 24]} />
         <meshBasicMaterial color={base} />
       </mesh>
-      <Billboard position={[0, 0.95, 0]}>
+      <Billboard position={[0, unit.dead ? 0.28 : 0.95, 0]}>
         <mesh>
-          <planeGeometry args={[0.95, height]} />
+          <planeGeometry args={[wide, height]} />
           <meshBasicMaterial map={tex} transparent alphaTest={0.12} toneMapped={false} side={THREE.DoubleSide} />
         </mesh>
+        {unit.dead ? (
+          <mesh position={[0.05, 0.02, 0.02]}>
+            <planeGeometry args={[0.38, 0.38]} />
+            <meshBasicMaterial map={woundTexture()} transparent depthWrite={false} toneMapped={false} />
+          </mesh>
+        ) : null}
       </Billboard>
       <Html position={[0, 2.15, 0]} center distanceFactor={9} zIndexRange={[2, 0]} style={{ pointerEvents: "none" }}>
         <div className="rounded bg-bg/80 px-1.5 py-0.5 font-mono text-[10px] tracking-wide whitespace-nowrap text-fg uppercase">

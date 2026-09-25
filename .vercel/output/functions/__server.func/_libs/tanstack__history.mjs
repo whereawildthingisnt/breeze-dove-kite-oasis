@@ -81,7 +81,7 @@ function createHistory(opts) {
 		go: (index, navigateOpts) => {
 			tryNavigation({
 				task: () => {
-					opts.go(index, navigateOpts?.ignoreBlocker ?? false);
+					opts.go(index);
 					handleIndexChange({
 						type: "GO",
 						index
@@ -203,7 +203,6 @@ function createBrowserHistory(opts) {
 		history.notify({ type });
 	};
 	const onPushPopEvent = async () => {
-		ignoreNextBeforeUnload = false;
 		if (ignoreNextPop) {
 			ignoreNextPop = false;
 			return;
@@ -229,7 +228,7 @@ function createBrowserHistory(opts) {
 					action
 				})) {
 					ignoreNextPop = true;
-					win.history.go(-delta);
+					win.history.go(1);
 					history.notify(notify);
 					return;
 				}
@@ -267,25 +266,17 @@ function createBrowserHistory(opts) {
 		pushState: (href, state) => queueHistoryAction(true, href, state),
 		replaceState: (href, state) => queueHistoryAction(false, href, state),
 		back: (ignoreBlocker) => {
-			if (ignoreBlocker) {
-				skipBlockerNextPop = true;
-				ignoreNextBeforeUnload = true;
-			}
+			if (ignoreBlocker) skipBlockerNextPop = true;
+			ignoreNextBeforeUnload = true;
 			return win.history.back();
 		},
 		forward: (ignoreBlocker) => {
-			if (ignoreBlocker) {
-				skipBlockerNextPop = true;
-				ignoreNextBeforeUnload = true;
-			}
+			if (ignoreBlocker) skipBlockerNextPop = true;
+			ignoreNextBeforeUnload = true;
 			win.history.forward();
 		},
-		go: (n, ignoreBlocker) => {
+		go: (n) => {
 			nextPopIsGo = true;
-			if (ignoreBlocker) {
-				skipBlockerNextPop = true;
-				ignoreNextBeforeUnload = true;
-			}
 			win.history.go(n);
 		},
 		createHref: (href) => createHref(href),

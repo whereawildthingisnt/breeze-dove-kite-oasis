@@ -1,8 +1,10 @@
 import { d100, dN, rollExpr, clamp } from "./dice";
 import {
   axialDistance,
+  cellAt,
   hexKey,
   isExit,
+  isWalkable,
   nearestExit,
   stepToward,
 } from "./hex";
@@ -427,6 +429,7 @@ function fireShot(
   let totalDmg = 0;
   let anyCrit = false;
   for (let i = 0; i < shots; i++) {
+    if (!isMelee(actor)) state.bangs = (state.bangs ?? 0) + 1;
     const roll = d100();
     const chance = info.chance;
     if (roll >= 96 || (roll > chance && roll - chance >= 30 && d100() <= Math.trunc((roll - chance) / 10))) {
@@ -445,6 +448,7 @@ function fireShot(
     hits += 1;
     totalDmg += dealt;
     anyCrit = anyCrit || crit;
+    if (!isMelee(actor)) target.wounds = (target.wounds ?? 0) + 1;
     if (crit && part && part !== "torso") {
       target.crippled[part] = true;
     }
@@ -763,6 +767,7 @@ export function startCombat(opts: {
   purse?: number;
   initiator?: "player" | "foe";
   map?: HexBoard | null;
+  field?: boolean;
 }): CombatState {
   const player = {
     ...opts.player,
@@ -811,15 +816,19 @@ export function startCombat(opts: {
     lightingLabel: opts.lightingLabel ?? (lighting === 0 ? "daylight" : lighting <= -40 ? "dark" : "dim"),
     combatants,
     log: [
-      opts.kind === "boxing"
-        ? `Bell. ${player.name} vs ${foes[0]?.name ?? "them"}. Unarmed. 1 hex. Sequence ${player.sequence} vs ${foes[0]?.sequence ?? 0}.`
-        : `${foes.map((f) => f.name).join(", ") || "Nobody"} on the map.${allyLine} ${opts.lightingLabel ?? "light 0"}. Sequence ${player.sequence}. Highest sequence first. What they carry stays on the body. Green hexes are the way out.`,
+      opts.field
+        ? `${foes.map((f) => f.name).join(", ") || "Nobody"} on this block. 40 by 40 hexes of where you are standing. Buildings stay buildings. The street stays the street. Cars and trash are cover. No turns. Walk, or strike. A body on the ground is dead.`
+        : opts.kind === "boxing"
+          ? `Bell. ${player.name} vs ${foes[0]?.name ?? "them"}. Unarmed. 1 hex. Sequence ${player.sequence} vs ${foes[0]?.sequence ?? 0}.`
+          : `${foes.map((f) => f.name).join(", ") || "Nobody"} on the map.${allyLine} ${opts.lightingLabel ?? "light 0"}. Sequence ${player.sequence}. Highest sequence first. What they carry stays on the body. Green hexes are the way out.`,
     ],
     purse: opts.purse,
     map: opts.map ?? null,
+    field: opts.field ?? false,
     targetId: foes.find((f) => f.hp > 0)?.id ?? "",
   };
   refreshRange(state);
+  if (opts.field) return state;
   if (opts.initiator === "player" && order[0] !== "player") {
     state.order = ["player", ...order.filter((id) => id !== "player")];
     log(state, `${player.name} initiated. First turn before sequence settles.`);
@@ -835,6 +844,101 @@ export function startCombat(opts: {
   return state;
 }
 
+function plantCover(state: CombatState, actor: Combatant) {
+  const cell = state.map ? cellAt(state.map, actor.hexQ, actor.hexR) : undefined;
+  actor.cover = cell?.kind === "cover" ? 30 : 0;
+  refreshAc(actor);
+}
+
+/** Real block, no sequence. Everybody moves and strikes on the same clock. */
+function applyField(state: CombatState, move: CombatMove, step?: { q: number; r: number }) {
+  if (state.result) return;
+  const player = state.combatants.find((c) => c.player);
+  if (!player || !state.map) return;
+  checkEnd(state);
+  if (state.result) return;
+
+  if (move === "field-walk" && step) {
+    if (!isWalkable(state.map, step.q, step.r)) return;
+    const occ = state.combatants.find(
+      (c) => c.hp > 0 && !c.fled && c.id !== player.id && c.hexQ === step.q && c.hexR === step.r,
+    );
+    if (occ) {
+      if (sideOf(occ) === "foe") {
+        state.targetId = occ.id;
+        refreshRange(state);
+      }
+      return;
+    }
+    player.hexQ = step.q;
+    player.hexR = step.r;
+    plantCover(state, player);
+    if (isExit(state.map, step.q, step.r)) {
+      state.result = "flee";
+      log(state, `${player.name} crosses the edge of the block and leaves the fight.`);
+      return;
+    }
+    refreshRange(state);
+    return;
+  }
+
+  if (move === "flee") {
+    state.result = "flee";
+    log(state, `${player.name} breaks off. The block keeps the bodies.`);
+    return;
+  }
+
+  if (move === "attack" || move === "aimed" || move === "burst") {
+    if ((player.cool ?? 0) > 0) {
+      log(state, `${player.name} is still recovering.`);
+      return;
+    }
+    player.down = false;
+    player.ap = player.apMax;
+    plantCover(state, player);
+    const foe = opponentOf(state, player.id);
+    if (foe) plantCover(state, foe);
+    fireShot(state, player, move === "aimed" ? "torso" : null, move === "burst");
+    player.cool = 2;
+    return;
+  }
+
+  if (move !== "field-tick") return;
+
+  for (const c of state.combatants) {
+    if ((c.cool ?? 0) > 0) c.cool = (c.cool ?? 0) - 1;
+  }
+  for (const actor of state.combatants) {
+    if (actor.player || actor.hp <= 0 || actor.fled) continue;
+    if (state.result) return;
+    if (actor.down) {
+      actor.down = false;
+      continue;
+    }
+    const target = opponentOf(state, actor.id);
+    if (!target || target.hp <= 0) continue;
+    plantCover(state, actor);
+    plantCover(state, target);
+    const dist = gap(state, actor, target);
+    const range = Math.max(1, actor.weaponRange);
+    if (dist > range) {
+      const blocked = occupiedKeys(state, actor.id);
+      const next = stepToward(state.map, actor.hexQ, actor.hexR, target.hexQ, target.hexR, blocked);
+      if (next && !isExit(state.map, next.q, next.r)) {
+        actor.hexQ = next.q;
+        actor.hexR = next.r;
+      }
+      continue;
+    }
+    if ((actor.cool ?? 0) > 0) continue;
+    actor.ap = actor.apMax;
+    if (!isMelee(actor) && actor.mag > 0 && actor.loaded <= 0) actor.loaded = actor.mag;
+    fireShot(state, actor, null, false);
+    actor.cool = 2;
+  }
+  refreshRange(state);
+}
+
 export function playMove(
   state: CombatState,
   move: CombatMove,
@@ -843,6 +947,16 @@ export function playMove(
 ): CombatState {
   const next = cloneCombat(state);
   if (next.result) return next;
+  const step =
+    extra?.q != null && extra?.r != null ? { q: extra.q, r: extra.r } : undefined;
+  if (next.field) {
+    if (extra?.targetId) {
+      const marked = next.combatants.find((c) => c.id === extra.targetId);
+      if (marked && sideOf(marked) === "foe" && marked.hp > 0) next.targetId = marked.id;
+    }
+    applyField(next, move, step);
+    return next;
+  }
   if (extra?.targetId) {
     const marked = next.combatants.find((c) => c.id === extra.targetId);
     if (marked && sideOf(marked) === "foe" && marked.hp > 0) next.targetId = marked.id;
@@ -852,8 +966,6 @@ export function playMove(
     drainNpcTurns(next);
     return next;
   }
-  const step =
-    extra?.q != null && extra?.r != null ? { q: extra.q, r: extra.r } : undefined;
   applyMove(next, move, part, step);
   if (!next.result) drainNpcTurns(next);
   return next;

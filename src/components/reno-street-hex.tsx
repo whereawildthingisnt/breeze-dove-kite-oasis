@@ -5,6 +5,7 @@ import { reachableFrom } from "@/components/reno-hex-map";
 import { FOE_TOKEN } from "@/lib/reno/actor";
 import { playerOf, sideOf } from "@/lib/reno/combat";
 import { cutoutTexture } from "@/lib/reno/cutout";
+import { woundTexture } from "@/lib/reno/wound";
 import { HEX_METERS, hexKey, hexToWorld, isWalkable } from "@/lib/reno/hex";
 import type { CombatState } from "@/lib/reno/types";
 
@@ -65,12 +66,17 @@ export function StreetHexes({
   const reachable =
     player && playerTurn ? reachableFrom(board, player.hexQ, player.hexR, Math.min(steps, 6), blocked) : undefined;
   const byHex = new Map(
-    combat.combatants.filter((c) => c.hp > 0 && !c.fled).map((c) => [hexKey(c.hexQ, c.hexR), c]),
+    combat.combatants.filter((c) => !c.fled).map((c) => [hexKey(c.hexQ, c.hexR), c]),
   );
+
+  const field = Boolean(combat.field);
+  const cells = field
+    ? board.cells.filter((cell) => cell.kind === "cover" || cell.kind === "exit")
+    : board.cells;
 
   return (
     <group>
-      {board.cells.map((cell) => {
+      {cells.map((cell) => {
         const key = hexKey(cell.q, cell.r);
         const at = hexToWorld(cell.q, cell.r, originX, originZ, scale);
         const unit = byHex.get(key);
@@ -85,19 +91,26 @@ export function StreetHexes({
                 : can
                   ? "#c4a15a"
                   : "#1c1916";
-        const token = unit
+        const showUnit = unit && !(field && unit.player);
+        const token = showUnit
           ? unit.player
             ? tex.player
             : tokenOf(tex, FOE_TOKEN[unit.kind] ?? "/reno/tokens/gangster.webp")
           : null;
+        const dead = Boolean(showUnit && unit.hp <= 0);
         return (
           <group key={key} position={[at.x, 0, at.z]}>
             <mesh
               rotation-x={-Math.PI / 2}
-              position={[0, 0.12, 0]}
+              position={[0, 0.08, 0]}
               geometry={geo}
+              raycast={field ? () => null : undefined}
               onClick={(e) => {
                 e.stopPropagation();
+                if (field) {
+                  if (unit && unit.hp > 0 && !unit.player) onHex(cell.q, cell.r);
+                  return;
+                }
                 if (cell.kind === "wall" || combat.result || !playerTurn) return;
                 if (!isWalkable(board, cell.q, cell.r)) return;
                 onHex(cell.q, cell.r);
@@ -106,12 +119,19 @@ export function StreetHexes({
               <meshBasicMaterial
                 color={color}
                 transparent
-                opacity={cell.kind === "wall" ? 0.55 : 0.72}
+                opacity={field ? (cell.kind === "exit" ? 0.28 : 0.4) : cell.kind === "wall" ? 0.55 : 0.72}
                 depthWrite={false}
               />
             </mesh>
-            {unit && token ? (
-              <sprite position={[0, 1.25, 0]} scale={[1.05, 2.1, 1]}>
+            {showUnit && token ? (
+              <sprite
+                position={[0, dead ? 0.22 : 1.25, 0]}
+                scale={dead ? [1.7, 0.42, 1] : [1.05, 2.1, 1]}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (field && unit.hp > 0) onHex(unit.hexQ, unit.hexR);
+                }}
+              >
                 <spriteMaterial
                   map={token}
                   transparent
@@ -121,9 +141,36 @@ export function StreetHexes({
                 />
               </sprite>
             ) : null}
+            {showUnit && (dead || (unit.wounds ?? 0) > 0) ? (
+              <sprite position={[0.12, dead ? 0.3 : 1.15, 0.05]} scale={[0.42, 0.42, 1]}>
+                <spriteMaterial map={woundTexture()} transparent depthWrite={false} />
+              </sprite>
+            ) : null}
           </group>
         );
       })}
+      {field
+        ? combat.combatants
+            .filter((c) => !c.player && !c.fled)
+            .filter((c) => !cells.some((cell) => cell.q === c.hexQ && cell.r === c.hexR))
+            .map((unit) => {
+              const at = hexToWorld(unit.hexQ, unit.hexR, originX, originZ, scale);
+              const token = tokenOf(tex, FOE_TOKEN[unit.kind] ?? "/reno/tokens/gangster.webp");
+              const dead = unit.hp <= 0;
+              return (
+                <group key={`body-${unit.id}`} position={[at.x, 0, at.z]}>
+                  <sprite position={[0, dead ? 0.22 : 1.25, 0]} scale={dead ? [1.7, 0.42, 1] : [1.05, 2.1, 1]}>
+                    <spriteMaterial map={token} transparent alphaTest={0.3} depthWrite={false} />
+                  </sprite>
+                  {dead || (unit.wounds ?? 0) > 0 ? (
+                    <sprite position={[0.12, dead ? 0.3 : 1.15, 0.05]} scale={[0.42, 0.42, 1]}>
+                      <spriteMaterial map={woundTexture()} transparent depthWrite={false} />
+                    </sprite>
+                  ) : null}
+                </group>
+              );
+            })
+        : null}
     </group>
   );
 }

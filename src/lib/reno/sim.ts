@@ -2,16 +2,17 @@ import type { Character, SkillId } from "@/lib/special/types";
 import { derive } from "@/lib/special/engine";
 import { consumeItem, countItem } from "@/lib/special/loadout";
 import { getItem } from "@/lib/special/catalog";
-import { boxingFoe, combatantFromFoe, FOES, playerCombatant } from "./actor";
-import { angelaHook, angelaOpen, angelaPresent, angelaReply, gangRankName } from "./angela";
+import { boxingFoe, combatantFromFoe, FOE_TOKEN, FOES, playerCombatant } from "./actor";
+import { angelaHook, angelaOpen, angelaPresent, angelaReply } from "./angela";
 import { applyLevelUps, tryPickPerk, trySpendSkill } from "./advance";
 import { foeOf, playMove, playerOf, sideOf, startCombat } from "./combat";
-import { generateEncounter, hexKey } from "./hex";
+import { generateEncounter, hexKey, hexToWorld, locationSquare } from "./hex";
 import { applyLoot, lootSummary, rollLoot } from "./loot";
-import { BUILDING_BY_ID, zoneAt } from "./city";
+import { BUILDING_BY_ID, nearestDistrict, zoneAt } from "./city";
 import { advanceCityHour, bookDrink, bookWager, ensurePulse } from "./city-sim";
+import { answerCall, clockCounter, clockFamily, clockRaid, ignoreCall, maybeFamilyCall, maybeVassalOffer, takeVassal } from "./work";
 import { selectEncounter, type EncounterActivity, type EncounterPick } from "./encounters";
-import { factionBrief, districtName, npcFor, remember } from "./street";
+import { factionBrief, districtName, npcFor, remember, STREET_NPCS } from "./street";
 import { handleStreetInteraction, type StreetActor } from "./interact";
 import { ensureIntel, guardCount } from "./intel";
 import { settingFromZone, ZONE_LABEL } from "./zones";
@@ -19,14 +20,18 @@ import { d100, dN, skillRoll, clamp } from "./dice";
 import { attentionMult, hustleHours, sneakCover, BUSINESS_COST, COOK_COST, DEAL_OPEN_STOCK, DEAL_RUN_STOCK, LAB_COST } from "./sneak";
 import {
   HEX_METERS,
+  SOULS,
   SOUL_BY_ID,
   claimSlot,
   clockMinute,
   ensureCity,
-  fightRadius,
   worldToHex,
 } from "./ecosystem";
-import type { ChemId, Combatant, DistrictId, GangId, HousingId, RenoAction, RenoLife, StashId } from "./types";
+import { schedulePoint } from "./schedules";
+import { revueById } from "./revue";
+import { approachPoint, blockedAt, nearestOpen, routeTo } from "./nav";
+import { weatherAt } from "./weather";
+import type { ChemId, Combatant, DistrictId, GangId, HousingId, RenoAction, RenoLife, RouteThen, StashId } from "./types";
 import {
   BOXING_ORDER,
   CHEMS,
@@ -61,6 +66,7 @@ function cloneLife(life: RenoLife): RenoLife {
           combatants: life.combat.combatants.map((c) => ({ ...c, crippled: { ...c.crippled } })),
           log: [...life.combat.log],
           order: [...life.combat.order],
+          bangs: life.combat.bangs ?? 0,
         }
       : null,
     dialogue: life.dialogue ? { ...life.dialogue } : null,
@@ -82,6 +88,8 @@ function cloneLife(life: RenoLife): RenoLife {
     posZ: life.posZ ?? DISTRICT_POS[life.district]?.z ?? 0,
     stash: { ...emptyStash(), ...life.stash },
     minute: life.minute ?? 0,
+    second: life.second ?? 0,
+    clock: life.clock ?? 1,
     loot: life.loot
       ? { ...life.loot, log: [...life.loot.log], drops: life.loot.drops.map((d) => ({ ...d })), foeNames: [...life.loot.foeNames] }
       : null,
@@ -89,6 +97,11 @@ function cloneLife(life: RenoLife): RenoLife {
     insideId: life.insideId ?? null,
     npcMemory: { ...(life.npcMemory ?? {}) },
     job: life.job ? { ...life.job } : null,
+    post: life.post
+      ? { ...life.post, pending: life.post.pending ? { ...life.post.pending } : null }
+      : null,
+    vassal: life.vassal ? { ...life.vassal } : null,
+    vassalOffer: life.vassalOffer ?? null,
     worldDay: life.worldDay ?? 0,
     fear: life.fear ?? 0,
     regard: life.regard ?? 0,
@@ -103,6 +116,9 @@ function cloneLife(life: RenoLife): RenoLife {
     },
     grudges: { ...(life.grudges ?? {}) },
     absent: { ...(life.absent ?? {}) },
+    corpses: (life.corpses ?? []).map((c) => ({ ...c })),
+    flat: life.flat ?? false,
+    privateShows: { ...(life.privateShows ?? {}) },
     reprieveMinute: life.reprieveMinute ?? 0,
     lastDose: { ...(life.lastDose ?? {}) },
     hunger: life.hunger ?? 22,
@@ -120,12 +136,70 @@ function cloneLife(life: RenoLife): RenoLife {
     pressureDay: life.pressureDay ?? 0,
     rations: life.rations ?? 0,
     waters: life.waters ?? 0,
+    book: (life.book ?? []).map((p) => ({ ...p })),
+    nav: life.nav
+      ? { ...life.nav, waypoints: life.nav.waypoints.map((w) => ({ ...w })) }
+      : null,
   });
 }
 
 function push(life: RenoLife, line: string) {
   life.log.unshift(line);
   if (life.log.length > 40) life.log.length = 40;
+}
+
+function closeTo(life: RenoLife, x: number, z: number, radius: number): boolean {
+  return Math.hypot(life.posX - x, life.posZ - z) <= radius;
+}
+
+function syncDistrict(life: RenoLife) {
+  const near = nearestDistrict(life.posX, life.posZ);
+  if (near.dist < 22) life.district = near.id;
+}
+
+function rememberFace(life: RenoLife, id: string, last: string) {
+  const prev = life.npcMemory?.[id] ?? { mood: 0, last: "" };
+  life.npcMemory = { ...life.npcMemory, [id]: { ...prev, last } };
+}
+
+/** Start an on-foot route. Does not move you there. The city walker follows the waypoints. */
+function startWalk(
+  life: RenoLife,
+  x: number,
+  z: number,
+  label: string,
+  then?: RouteThen,
+  who?: string,
+  building?: string,
+) {
+  if (life.insideId) {
+    life.insideId = null;
+    push(life, "You step outside.");
+  }
+  if (blockedAt(life.posX, life.posZ)) {
+    const open = nearestOpen(life.posX, life.posZ);
+    life.posX = open.x;
+    life.posZ = open.z;
+  }
+  const path = routeTo(life.posX, life.posZ, x, z);
+  const meters = Math.max(1, Math.round(Math.hypot(x - life.posX, z - life.posZ)));
+  life.nav = {
+    id: `nav-${Date.now().toString(36)}-${Math.round(x)}-${Math.round(z)}`,
+    label,
+    x,
+    z,
+    waypoints: path.points,
+    then,
+    who,
+    building,
+    clear: path.clear,
+  };
+  push(
+    life,
+    path.clear
+      ? `You head for ${label}. ${meters} meters on the street. No jump.`
+      : `You head for ${label}. ${meters} meters. The streets do not connect, so you cut the lots.`,
+  );
 }
 
 function skill(character: Character, id: SkillId): number {
@@ -214,7 +288,7 @@ function beginGuardFight(
   player.hp = life.hp;
   const night = isNight(life);
   const setting = settingFromZone(zoneAt(life.posX, life.posZ), night);
-  const layout = generateEncounter({ setting, surprise: false, foeCount: foes.length, night });
+  const layout = locationSquare(life.posX, life.posZ, setting, night);
   player.hexQ = layout.player.q;
   player.hexR = layout.player.r;
   foes.forEach((foe, i) => {
@@ -234,6 +308,7 @@ function beginGuardFight(
     lightingLabel: light.label,
     initiator: "player",
     map: layout.map,
+    field: true,
     }),
     "crime",
   );
@@ -241,10 +316,17 @@ function beginGuardFight(
   push(life, `${reason} ${n} guard${n === 1 ? "" : "s"} for ${mark.name}.`);
 }
 
+function harshGround(life: RenoLife): boolean {
+  const zone = zoneAt(life.posX, life.posZ);
+  return zone === "wild" || zone === "outskirts";
+}
+
 function tickNeeds(life: RenoLife, mins: number) {
-  life.hunger = clamp((life.hunger ?? 22) + mins / 52, 0, 100);
-  life.thirst = clamp((life.thirst ?? 18) + mins / 40, 0, 100);
-  life.fatigue = clamp((life.fatigue ?? 12) + mins / 48, 0, 100);
+  // Kitchens and taps cover the city. Hunger only bites in the desert and the unpowered edge.
+  const harsh = harshGround(life);
+  life.hunger = clamp((life.hunger ?? 22) + (harsh ? mins / 140 : mins / 900), 0, 100);
+  life.thirst = clamp((life.thirst ?? 18) + (harsh ? mins / 110 : mins / 900), 0, 100);
+  life.fatigue = clamp((life.fatigue ?? 12) + mins / 192, 0, 100);
   life.boredom = clamp((life.boredom ?? 28) + mins / 90, 0, 100);
   const ugly =
     (life.hunger >= 86 ? 1 : 0) + (life.thirst >= 86 ? 1 : 0) + (life.fatigue >= 86 ? 1 : 0);
@@ -371,19 +453,31 @@ function tickMinutes(life: RenoLife, mins: number) {
     life.minute -= 60;
     life.hour += 1;
     driftHour(life);
-    if ((life.strain ?? 0) >= 360 && (life.hunger >= 94 || life.thirst >= 96)) life.hp = Math.max(1, life.hp - 1);
+    if (harshGround(life) && (life.strain ?? 0) >= 360 && (life.hunger >= 94 || life.thirst >= 96)) life.hp = Math.max(1, life.hp - 1);
     if (life.hour >= 24) {
       life.hour -= 24;
       life.day += 1;
       payWeeklyRent(life);
-      if ((life.strain ?? 0) >= 360 && life.hunger >= 86) push(life, "Hunger has been sitting long enough to matter. The city still does not feed you.");
-      if ((life.strain ?? 0) >= 360 && life.thirst >= 86) push(life, "Thirst has gone from dry to mean.");
+      if (harshGround(life) && (life.strain ?? 0) >= 360 && life.hunger >= 86) push(life, "Out here, hunger has been sitting long enough to matter. Nobody is running a kitchen.");
+      if (harshGround(life) && (life.strain ?? 0) >= 360 && life.thirst >= 86) push(life, "The desert does not pour. Thirst has gone from dry to mean.");
       if (life.fatigue >= 90 && (life.strain ?? 0) >= 240) push(life, "You have not slept. It took this long to swim.");
       if (life.boredom >= 90) push(life, "Boredom, slow as a watch. Reno will invent a problem if you do not.");
       runWorldDay(life, rollingSheet);
     }
   }
+  sweepBodies(life);
 }
+
+function tickSeconds(life: RenoLife, seconds: number) {
+  const add = Math.max(0, Math.floor(seconds));
+  if (!add) return;
+  life.second = (life.second ?? 0) + add;
+  const mins = Math.floor(life.second / 60);
+  life.second %= 60;
+  if (mins > 0) tickMinutes(life, mins);
+}
+
+const CLOCK_PACES = [0, 1, 5, 15, 60];
 
 function tick(life: RenoLife, hours: number) {
   tickMinutes(life, Math.max(1, Math.round(hours * 60)));
@@ -409,6 +503,10 @@ function driftHour(life: RenoLife) {
   }
   const news = advanceCityHour(life);
   if (news) push(life, news);
+  const call = maybeFamilyCall(life, rollingSheet);
+  if (call) push(life, call);
+  const offer = maybeVassalOffer(life);
+  if (offer) push(life, offer);
 }
 
 function addFame(life: RenoLife, amount: number, loud = false): number {
@@ -433,11 +531,69 @@ function placeOnStreet(life: RenoLife, combat: NonNullable<RenoLife["combat"]>, 
   combat.originZ = life.posZ;
   combat.hexScale = HEX_METERS;
   combat.cause = cause;
+  if (cause !== "ring") combat.field = true;
   return combat;
 }
 
 function grantReprieve(life: RenoLife, minutes: number) {
   life.reprieveMinute = clockMinute(life) + minutes;
+}
+
+function layBody(life: RenoLife, dead: Combatant, index: number) {
+  const originX = life.combat?.originX ?? life.posX;
+  const originZ = life.combat?.originZ ?? life.posZ;
+  const scale = life.combat?.hexScale || HEX_METERS;
+  const at =
+    life.combat?.map != null
+      ? hexToWorld(dead.hexQ, dead.hexR, originX, originZ, scale)
+      : { x: originX + index * 0.7, z: originZ + (index % 2) * 0.4 };
+  let best = 999;
+  let muscle = "";
+  for (const soul of SOULS) {
+    if (soul.role !== "collector" && !soul.blade) continue;
+    if ((life.absent[soul.id] ?? 0) > life.day) continue;
+    const spot = schedulePoint(soul, life);
+    const d = Math.hypot(spot.x - at.x, spot.z - at.z);
+    if (d < best) {
+      best = d;
+      muscle = soul.name;
+    }
+  }
+  const cleaned = Boolean(muscle) && best < 90;
+  life.corpses = [
+    ...(life.corpses ?? []).filter((c) => c.id !== dead.id),
+    {
+      id: dead.id,
+      name: dead.name,
+      x: at.x,
+      z: at.z,
+      sprite: dead.player ? "/reno/tokens/player.webp" : (FOE_TOKEN[dead.kind] ?? "/reno/tokens/gangster.webp"),
+      wounds: Math.max(1, dead.wounds ?? 1),
+      cleanMinute: clockMinute(life) + (cleaned ? 20 + Math.round(best / 4) : 55),
+      cleaner: "people",
+      cleanerName: cleaned ? muscle : "Someone",
+    },
+  ];
+}
+
+function sweepBodies(life: RenoLife) {
+  const list = life.corpses ?? [];
+  if (!list.length || life.combat) return;
+  const now = clockMinute(life);
+  const keep = [];
+  for (const body of list) {
+    if (now < body.cleanMinute) {
+      keep.push(body);
+      continue;
+    }
+    push(
+      life,
+      body.cleaner === "cops"
+        ? `${body.cleanerName} has ${body.name} moved. The code does not like a mess where people spend.`
+        : `${body.cleanerName} takes ${body.name} off the pavement. No badge. There isn't one.`,
+    );
+  }
+  life.corpses = keep;
 }
 
 let rollingSheet: Character | null = null;
@@ -449,8 +605,19 @@ function runWorldDay(life: RenoLife, character: Character | null) {
   if (life.business) {
     const take = 40 + ((life.day * 17) % 50);
     const help = 12 + (life.day % 9);
-    life.caps += Math.max(0, take - help);
-    push(life, `${life.business.name} took in ${take} caps and paid the help ${help}. You were not behind the counter.`);
+    let net = Math.max(0, take - help);
+    let cut = 0;
+    if (life.vassal && net > 0) {
+      cut = Math.round((net * life.vassal.cut) / 100);
+      net -= cut;
+    }
+    life.caps += net;
+    push(
+      life,
+      cut > 0
+        ? `${life.business.name} cleared ${take - help} caps. The ${GANG_BY_ID[life.vassal!.gang].name} take ${cut}. What is yours is a till they recognize.`
+        : `${life.business.name} took in ${take} caps and paid the help ${help}. You were not behind the counter.`,
+    );
   }
   if (life.dealing) {
     const sneak = character ? skill(character, "sneak") : 40;
@@ -460,13 +627,15 @@ function runWorldDay(life: RenoLife, character: Character | null) {
     const moved = Math.min(have, sold);
     if (moved > 0) {
       life.stash.jet -= moved;
-      const pay = moved * (40 + lk * 2);
+      const pay0 = moved * (40 + lk * 2);
+      const cut = life.vassal ? Math.round((pay0 * life.vassal.cut) / 100) : 0;
+      const pay = pay0 - cut;
       life.caps += pay;
       const heat = Math.max(1, Math.round((6 * moved * (100 - Math.min(90, sneak))) / 100));
       life.heat = clamp(life.heat + heat, 0, 100);
       push(
         life,
-        `A buyer found the stash without you. −${moved} Jet, +${pay} caps. Heat +${heat}. Sneak ${sneak} ${sneak >= 75 ? "kept it quiet" : sneak >= 50 ? "bought you time" : "left a trail"}.`,
+        `A buyer found the stash without you. −${moved} Jet, +${pay} caps${cut ? ` after the ${GANG_BY_ID[life.vassal!.gang].name} cut ${cut}` : ""}. Heat +${heat}. Sneak ${sneak} ${sneak >= 75 ? "kept it quiet" : sneak >= 50 ? "bought you time" : "left a trail"}.`,
       );
     } else {
       push(life, "Your corner had a buyer and no Jet. They will remember the empty hand.");
@@ -559,6 +728,7 @@ function startFromSighting(life: RenoLife, character: Character, initiated: "pla
       lightingLabel: sight.lightingLabel ?? light.label,
       initiator: initiated,
       map: sight.map,
+      field: true,
     }),
     sight.cause === "feud" || sight.cause === "crime" ? sight.cause : "hunt",
   );
@@ -571,6 +741,11 @@ function settleCombat(life: RenoLife, character: Character): Character {
   const player = playerOf(combat);
   const foe = foeOf(combat);
   if (player) life.hp = Math.max(0, player.hp);
+  if (combat.field && player && combat.originX != null && combat.originZ != null) {
+    const at = hexToWorld(player.hexQ, player.hexR, combat.originX, combat.originZ, combat.hexScale || HEX_METERS);
+    life.posX = at.x;
+    life.posZ = at.z;
+  }
 
   if (combat.result === "win") {
     let sheet = character;
@@ -597,6 +772,7 @@ function settleCombat(life: RenoLife, character: Character): Character {
       if (combat.cause === "feud") life.tension = clamp((life.tension ?? 0) - 14, 0, 100);
       for (const dead of deadFoes) {
         if (SOUL_BY_ID[dead.id]) life.absent[dead.id] = life.day + 1;
+        layBody(life, dead, deadFoes.indexOf(dead));
         const gang =
           dead.kind === "mordino"
             ? "mordinos"
@@ -631,7 +807,7 @@ function settleCombat(life: RenoLife, character: Character): Character {
       push(
         life,
         deadFoes.length
-          ? `They drop. Heat +${gained}, and the block will feel it later, not this second. Search them.`
+          ? `They drop. Flat on the ground means dead. Heat +${gained}. Someone will take the bodies. Search them first.`
           : "The street clears. Nothing left to search.",
       );
     }
@@ -642,7 +818,9 @@ function settleCombat(life: RenoLife, character: Character): Character {
     life.caps -= drop;
     life.heat = clamp(life.heat + 1, 0, 100);
     grantReprieve(life, 40);
-    push(life, `You run the green hexes back to the street. ${drop} caps scatter behind you. They do not follow this minute.`);
+    push(life, combat.field
+      ? `You leave the block. ${drop} caps scatter behind you. They do not follow this minute.`
+      : `You run the green hexes back to the street. ${drop} caps scatter behind you. They do not follow this minute.`);
   } else {
     const loss = Math.min(life.caps, 20 + dN(40));
     life.caps -= loss;
@@ -657,8 +835,15 @@ function settleCombat(life: RenoLife, character: Character): Character {
       life.nextFightDay = life.day + 6;
       push(life, `You wake on a cot under the ring. −${loss} caps. ${skip} days gone.`);
     } else {
+      if (player && player.hp <= 0) {
+        layBody(life, player, 0);
+        life.flat = true;
+      }
+      for (const dead of combat.combatants.filter((c) => sideOf(c) === "foe" && c.hp <= 0 && !c.fled)) {
+        layBody(life, dead, 0);
+      }
       life.housingId = life.housingId && housingDanger(life) >= 8 ? null : life.housingId;
-      push(life, `A doctor you do not remember bills you ${loss} caps. ${skip} days of black.`);
+      push(life, `You are flat on the ground. A doctor you do not remember bills you ${loss} caps. ${skip} days of black. The body stays until you get up.`);
     }
   }
 
@@ -703,12 +888,7 @@ function openContextEncounter(life: RenoLife, pick: EncounterPick) {
     ally.id = `${pick.id}-ally-${kind}-${i}`;
     return ally;
   });
-  const layout = generateEncounter({
-    setting: pick.setting,
-    surprise: false,
-    foeCount: Math.max(1, foes.length),
-    night,
-  });
+  const layout = locationSquare(life.posX, life.posZ, pick.setting, night);
   foes.forEach((foe, i) => {
     const slot = layout.foes[i] ?? layout.foes[0]!;
     foe.hexQ = slot.q;
@@ -749,6 +929,20 @@ function maybeEncounter(life: RenoLife, _character: Character, extra = 0, activi
   if (!pick) return false;
   const rate = Math.min(48, 5 + extra + Math.round(pick.pressure * 0.6) + Math.floor(life.heat / 16));
   if (d100() > rate) return false;
+  const zone = zoneAt(life.posX, life.posZ);
+  if (zone === "strip" && !isNight(life)) {
+    const hurt = 3 + dN(8);
+    life.hp = Math.max(1, life.hp - hurt);
+    if (life.hp <= 8) {
+      life.flat = true;
+      life.hp = Math.max(1, life.hp);
+      push(life, `Daylight on the strip. Someone puts you down. −${hurt} HP. The casinos do not close. Nobody finishes it.`);
+    } else {
+      push(life, `A beating on the strip, not an execution. −${hurt} HP. Travelers are still spending. The families want that money.`);
+    }
+    grantReprieve(life, 30);
+    return false;
+  }
   openContextEncounter(life, pick);
   return true;
 }
@@ -836,7 +1030,7 @@ function tracks(life: RenoLife, character: Character, label: string) {
     return;
   }
   life.warrant = clamp((life.warrant ?? 0) + add, 0, 100);
-  push(life, `${label} Warrant +${add}. Heat is the noise. The walk comes later.`);
+  push(life, `${label} The code notes it. +${add}. Heat is the noise. A family walks it off the strip, not in front of the tourists.`);
 }
 
 function settlePressure(life: RenoLife, character: Character) {
@@ -870,7 +1064,7 @@ function settlePressure(life: RenoLife, character: Character) {
     return;
   }
   life.warrant = clamp((life.warrant ?? 0) + 6, 0, 100);
-  push(life, "The questions arrived as a file, not a gun. Warrant moved. Someone still has to walk across Reno.");
+  push(life, "The questions arrived as a file the families keep, not a badge. The code moved. Someone still has to find you off Virgin Street.");
 }
 
 function burnFast(life: RenoLife, character: Character, baseHours: number, buy = false): Character {
@@ -1383,6 +1577,15 @@ function applyInteraction(life: RenoLife, character: Character, actor: StreetAct
   mem.last = beat.last;
   life.npcMemory = { ...life.npcMemory, [actor.id]: mem };
   for (const line of beat.lines.slice(1)) push(life, line);
+  if (beat.spend) {
+    if (life.caps >= beat.spend) {
+      life.caps -= beat.spend;
+      push(life, `You pay ${beat.spend}. Caps left: ${life.caps}.`);
+      if (beat.last === "took the hour") tickMinutes(life, 50);
+    } else {
+      push(life, `${actor.name} waits. You have ${life.caps}. She asked for ${beat.spend}.`);
+    }
+  }
   const pulse = ensurePulse(life);
   if (beat.flag === "richard-named" && pulse.story.richard === "open") {
     pulse.story.richard = "named";
@@ -1426,8 +1629,10 @@ function streetAct(life: RenoLife, character: Character, act: "talk" | "lean" | 
       push(life, "You are not carrying anyone's package.");
       return { life, character };
     }
-    if (life.district !== life.job.to) {
-      push(life, `${life.job.item} still has to reach ${districtName(life.job.to)}. You are in ${districtName(life.district)}.`);
+    if (life.district !== life.job.to || !closeTo(life, DISTRICT_POS[life.job.to].x, DISTRICT_POS[life.job.to].z, 18)) {
+      const dest = DISTRICT_POS[life.job.to];
+      startWalk(life, dest.x, dest.z, districtName(life.job.to));
+      push(life, `${life.job.item} is still in your hands. The drop is ${districtName(life.job.to)}.`);
       return { life, character };
     }
     tickMinutes(life, 20);
@@ -1493,7 +1698,7 @@ function streetAct(life: RenoLife, character: Character, act: "talk" | "lean" | 
   if (act === "tip") {
     const cost = 15;
     if (life.caps < cost) {
-      push(life, "A tip is 15 caps. Officer Lang does not take IOUs.");
+      push(life, "The code is 15 caps. They do not take IOUs, and there is no badge to flash.");
       return { life, character };
     }
     life.caps -= cost;
@@ -1501,10 +1706,10 @@ function streetAct(life: RenoLife, character: Character, act: "talk" | "lean" | 
     life.heat = clamp(life.heat - 2, 0, 100);
     life.warrant = clamp((life.warrant ?? 0) - 2, 0, 100);
     life.grudges.lang = Math.max(0, (life.grudges.lang ?? 0) - 4);
-    const cop = npcFor("virgin", night, "casino");
-    const copMem = { ...remember(life.npcMemory, cop.id), last: "tipped", mood: 1 };
-    life.npcMemory = { ...life.npcMemory, [cop.id]: copMem };
-    push(life, "You tip the lamp on Virgin Street. Lang pockets it. Heat and the warrant ease a little. He will not forget the courtesy, or the face.");
+    const door = npcFor(life.district, night, building?.use);
+    const doorMem = { ...remember(life.npcMemory, door.id), last: "paid the code", mood: 1 };
+    life.npcMemory = { ...life.npcMemory, [door.id]: doorMem };
+    push(life, `You pay the code. ${door.name} pockets it. Heat eases. This is not a cop. New Reno does not have those.`);
     return { life, character };
   }
 
@@ -1518,16 +1723,16 @@ function streetAct(life: RenoLife, character: Character, act: "talk" | "lean" | 
       const take = 12 + dN(28);
       life.caps += take;
       const gained = addHeat(life, character, 10, true);
-      life.grudges[npc.role === "cop" ? "lang" : npc.role === "soldato" ? "vin" : "cass"] = Math.min(
+      life.grudges[npc.role === "soldato" ? "vin" : "cass"] = Math.min(
         100,
-        (life.grudges[npc.role === "cop" ? "lang" : npc.role === "soldato" ? "vin" : "cass"] ?? 0) + 8,
+        (life.grudges[npc.role === "soldato" ? "vin" : "cass"] ?? 0) + 8,
       );
       life.fear = clamp((life.fear ?? 0) + 1, 0, 100);
       push(life, `${npc.name} pays ${take} to make you leave. Heat +${gained}. The slight is on a person, not a dice table.`);
       tracks(life, character, `${npc.name} is telling the block about the shakedown.`);
     } else {
       push(life, `${npc.name} does not pay. ${roll.roll}. They will remember this. They are not swinging yet.`);
-      const remembered = npc.district === "motel" ? "nix" : npc.role === "cop" ? "lang" : npc.role === "soldato" ? "vin" : "cass";
+      const remembered = npc.district === "motel" ? "nix" : npc.role === "soldato" ? "vin" : "cass";
       life.grudges[remembered] = Math.min(100, (life.grudges[remembered] ?? 0) + 14);
       if (npc.role === "soldato") noteOutrage(life, DISTRICT_BY_ID[life.district].gang, 6);
       else life.fear = clamp((life.fear ?? 0) + 2, 0, 100);
@@ -1536,6 +1741,11 @@ function streetAct(life: RenoLife, character: Character, act: "talk" | "lean" | 
   }
 
   if (act === "door") {
+    if (building && !life.insideId && !closeTo(life, approachPoint(building).x, approachPoint(building).z, 8)) {
+      const door = approachPoint(building);
+      startWalk(life, door.x, door.z, building.name, "enter", undefined, building.id);
+      return { life, character };
+    }
     tickMinutes(life, 15);
     if (!life.insideId && building) {
       life.insideId = building.id;
@@ -1571,15 +1781,7 @@ function openCityContact(life: RenoLife, character: Character, action: Extract<R
   life.posZ = action.z;
   const night = isNight(life);
   const setting = settingFromZone(zoneAt(life.posX, life.posZ), night);
-  const bodies = [...action.foes, ...action.allies];
-  const radius = fightRadius(life.posX, life.posZ, bodies, bodies.length + 1);
-  const layout = generateEncounter({
-    setting,
-    surprise: action.surprise,
-    foeCount: action.foes.length,
-    night,
-    radius,
-  });
+  const layout = locationSquare(life.posX, life.posZ, setting, night);
   const used = new Set<string>([hexKey(0, 0)]);
   const player = playerCombatant(character, { hp: life.hp, trainBonus: life.trainBonus });
   player.hp = life.hp;
@@ -1622,11 +1824,12 @@ function openCityContact(life: RenoLife, character: Character, action: Extract<R
         lightingLabel: light.label,
         initiator: "foe",
         map: layout.map,
+        field: true,
       }),
       action.cause,
     );
     life.sighting = null;
-    push(life, `${action.reason} They already had the sequence.`);
+    push(life, `${action.reason} They are already on you. This block is the fight. No turns.`);
     return;
   }
   life.sighting = {
@@ -1645,7 +1848,7 @@ function openCityContact(life: RenoLife, character: Character, action: Extract<R
     lightingLabel: light.label,
     reason: action.reason,
   };
-  push(life, `${action.reason} The city holds still. Hexes scale to the bodies already on this street.`);
+  push(life, `${action.reason} Forty hexes by forty, this street and these buildings. Walk it, or strike. A body on the ground is dead.`);
 }
 
 export function applyAction(life: RenoLife, character: Character, action: RenoAction): SimResult {
@@ -1658,7 +1861,18 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
     perkBank: character.perkBank ?? 0,
   };
   ensureIntel(next);
+  if (action.type === "setClock") {
+    next.clock = CLOCK_PACES.includes(action.pace) ? action.pace : 1;
+    return { life: next, character: sheet };
+  }
   if (next.dead) return { life: next, character: sheet };
+
+  if (action.type === "rise") {
+    next.flat = false;
+    next.corpses = (next.corpses ?? []).filter((c) => c.id !== "player");
+    push(next, "You get up off the pavement.");
+    return { life: next, character: sheet };
+  }
 
   if (next.loot && action.type !== "loot") {
     push(next, "Search the pockets first.");
@@ -1688,6 +1902,15 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
     return { life: next, character: sheet };
   }
 
+  if (action.type === "tickClock") {
+    if (next.combat || next.sighting || next.dialogue || next.loot) return { life: next, character: sheet };
+    const day = next.day;
+    tickSeconds(next, action.seconds);
+    if (next.day !== day) settlePressure(next, sheet);
+    if ((next.worldDay ?? 0) < next.day) runWorldDay(next, sheet);
+    return { life: next, character: sheet };
+  }
+
   if (action.type === "inspect") {
     next.inspecting = action.building;
     if (action.building) {
@@ -1707,6 +1930,11 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
     const b = id ? BUILDING_BY_ID[id] : null;
     if (!b) {
       push(next, "Pick a door before you walk through it.");
+      return { life: next, character: sheet };
+    }
+    const door = approachPoint(b);
+    if (!next.insideId && !closeTo(next, door.x, door.z, 8)) {
+      startWalk(next, door.x, door.z, b.name, "enter", undefined, b.id);
       return { life: next, character: sheet };
     }
     next.insideId = b.id;
@@ -1738,15 +1966,22 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
 
   if (action.type === "streetTalk") {
     const soul = SOUL_BY_ID[action.actorId];
-    if (!soul) {
+    const door = STREET_NPCS.find((n) => n.id === action.actorId);
+    if (!soul && !door) {
       push(next, "They have already left this block.");
       return { life: next, character: sheet };
     }
-    if ((next.absent?.[soul.id] ?? 0) > next.day) {
+    if (soul && (next.absent?.[soul.id] ?? 0) > next.day) {
       push(next, `${soul.name} is not on the route. The absence is the news.`);
       return { life: next, character: sheet };
     }
-    return applyInteraction(next, sheet, { id: soul.id, name: soul.name });
+    const spot = soul ? schedulePoint(soul, next) : DISTRICT_POS[door!.district];
+    if (!closeTo(next, spot.x, spot.z, 8)) {
+      startWalk(next, spot.x, spot.z, soul?.name ?? door!.name, "talk", action.actorId);
+      return { life: next, character: sheet };
+    }
+    syncDistrict(next);
+    return applyInteraction(next, sheet, { id: action.actorId, name: soul?.name ?? door!.name });
   }
 
   if (action.type === "loot") {
@@ -1766,6 +2001,46 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
     milled.life.boredom = clamp((milled.life.boredom ?? 28) - 18, 0, 100);
     milled.character = award(milled.life, milled.character, 8, "You worked a room.");
     return milled;
+  }
+
+  if (action.type === "linger") {
+    if (!next.insideId) {
+      push(next, "You are standing in the street. Time passes when you walk.");
+      return { life: next, character: sheet };
+    }
+    tickMinutes(next, 30);
+    const room = BUILDING_BY_ID[next.insideId];
+    const use = room?.abandoned ? "abandoned" : room?.use;
+    if (use === "club" || use === "bar") {
+      push(next, "Half an hour. The number changes. She is still on the stage.");
+    } else if (use === "casino") {
+      push(next, "Half an hour on the floor. The reels turn over. The stage does not stop.");
+    } else {
+      push(next, "Half an hour passes inside. The street keeps its own clock.");
+    }
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "privateDance") {
+    if (!next.insideId) {
+      push(next, "The booth is indoors.");
+      return { life: next, character: sheet };
+    }
+    const act = revueById(action.dancer);
+    if (!act) return { life: next, character: sheet };
+    const done = next.privateShows?.[act.id] ?? 0;
+    const step = Math.min(done, act.prices.length - 1);
+    const cost = act.prices[step]!;
+    if (next.caps < cost) {
+      push(next, `${act.name} waits. ${cost} caps for the next step. You have ${next.caps}.`);
+      return { life: next, character: sheet };
+    }
+    next.caps -= cost;
+    const now = Math.min(done + 1, act.private.length);
+    next.privateShows = { ...(next.privateShows ?? {}), [act.id]: now };
+    tickMinutes(next, 15);
+    push(next, `${act.name}: ${act.steps[now - 1] ?? act.steps[act.steps.length - 1]} −${cost} caps.`);
+    return { life: next, character: sheet };
   }
 
   if (action.type === "eat") {
@@ -1909,16 +2184,15 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       push(next, "That corner went quiet.");
       return { life: next, character: sheet };
     }
-    if (dealer.district !== next.district) {
-      tick(next, 1);
-      next.district = dealer.district;
+    if (!closeTo(next, DISTRICT_POS[dealer.district].x, DISTRICT_POS[dealer.district].z, 14)) {
       const dest = DISTRICT_POS[dealer.district];
-      next.posX = dest.x;
-      next.posZ = dest.z;
-      push(next, `You cut across town looking for ${dealer.name}.`);
+      startWalk(next, dest.x, dest.z, dealer.name, "meet-dealer", dealer.id);
+      return { life: next, character: sheet };
     }
-    tickMinutes(next, 40);
+    syncDistrict(next);
+    tickMinutes(next, 10);
     next.soughtDealer = dealer.id;
+    rememberFace(next, dealer.id, "found the corner");
     next.boredom = clamp((next.boredom ?? 28) - 8, 0, 100);
     const gang = dealer.gang ? GANG_BY_ID[dealer.gang].name : "no family";
     push(next, `${dealer.name}. ${dealer.note} ${gang}.`);
@@ -1941,8 +2215,10 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       push(next, `${dealer.name} does not carry ${STASH_META[action.chem].name}.`);
       return { life: next, character: sheet };
     }
-    if (dealer.district !== next.district) {
-      push(next, `Find ${dealer.name} on ${DISTRICT_BY_ID[dealer.district].name} first.`);
+    if (!closeTo(next, DISTRICT_POS[dealer.district].x, DISTRICT_POS[dealer.district].z, 14)) {
+      const dest = DISTRICT_POS[dealer.district];
+      startWalk(next, dest.x, dest.z, dealer.name, "meet-dealer", dealer.id);
+      push(next, `The buy waits until you are standing on ${dealer.name}'s corner.`);
       return { life: next, character: sheet };
     }
     const qty = Math.max(1, action.qty);
@@ -1970,16 +2246,15 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       push(next, "That money left town.");
       return { life: next, character: sheet };
     }
-    if (mark.district !== next.district) {
-      tick(next, 1);
-      next.district = mark.district;
+    if (!closeTo(next, DISTRICT_POS[mark.district].x, DISTRICT_POS[mark.district].z, 14)) {
       const dest = DISTRICT_POS[mark.district];
-      next.posX = dest.x;
-      next.posZ = dest.z;
-      push(next, `You hunt ${mark.name} to ${DISTRICT_BY_ID[mark.district].name}.`);
+      startWalk(next, dest.x, dest.z, mark.name, "meet-mark", mark.id);
+      return { life: next, character: sheet };
     }
-    tickMinutes(next, 35);
+    syncDistrict(next);
+    tickMinutes(next, 10);
     next.soughtMark = mark.id;
+    rememberFace(next, mark.id, mark.mood === "hostile" ? "a bad look" : "looked in");
     const guards = guardCount(mark.wealth);
     push(
       next,
@@ -1996,8 +2271,10 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       push(next, "Gone.");
       return { life: next, character: sheet };
     }
-    if (mark.district !== next.district) {
-      push(next, `They keep court at ${DISTRICT_BY_ID[mark.district].name}.`);
+    if (!closeTo(next, DISTRICT_POS[mark.district].x, DISTRICT_POS[mark.district].z, 14)) {
+      const dest = DISTRICT_POS[mark.district];
+      startWalk(next, dest.x, dest.z, mark.name, "meet-mark", mark.id);
+      push(next, `You are not on ${mark.name}'s block. The ${action.act} waits until you are.`);
       return { life: next, character: sheet };
     }
     const guards = guardCount(mark.wealth);
@@ -2060,10 +2337,19 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
   }
 
   if (action.type === "talk") {
-    if (action.who !== "angela" || !angelaPresent(next)) {
+    if (action.who !== "angela") {
       push(next, "She isn't here.");
       return { life: next, character: sheet };
     }
+    const spot = Math.hypot(next.posX - DISTRICT_POS.bishop.x, next.posZ - DISTRICT_POS.bishop.z) + 8 <
+      Math.hypot(next.posX - DISTRICT_POS.shark.x, next.posZ - DISTRICT_POS.shark.z)
+      ? DISTRICT_POS.bishop
+      : DISTRICT_POS.shark;
+    if (!closeTo(next, spot.x, spot.z, 14)) {
+      startWalk(next, spot.x, spot.z, "Angela Bishop", "angela");
+      return { life: next, character: sheet };
+    }
+    next.district = spot === DISTRICT_POS.bishop ? "bishop" : "shark";
     const view = angelaOpen(sheet, next);
     next.dialogue = { who: "angela", node: view.node };
     push(next, `Angela Bishop: ${view.line}`);
@@ -2154,36 +2440,112 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
   if (action.type === "walkTick") {
     next.posX = action.x;
     next.posZ = action.z;
-    tickMinutes(next, 2);
     const zone = zoneAt(next.posX, next.posZ);
     const extra = zone === "strip" ? -12 : zone === "alley" ? 4 : zone === "wild" ? 8 : 0;
-    maybeEncounter(next, sheet, extra + (isNight(next) ? 3 : 0), "travel");
+    const wx = weatherAt(next.day, next.hour);
+    const wet = wx === "storm" ? 7 : wx === "rain" ? 3 : wx === "dust" ? 2 : wx === "wind" ? 1 : 0;
+    maybeEncounter(next, sheet, extra + (isNight(next) ? 3 : 0) + wet, "travel");
     return { life: next, character: sheet };
   }
 
   if (action.type === "travel") {
-    if (action.district === next.district) {
-      push(next, "You are already here.");
-      return { life: next, character: sheet };
-    }
-    tick(next, 1);
-    next.district = action.district;
     const dest = DISTRICT_POS[action.district];
-    next.posX = dest.x;
-    next.posZ = dest.z;
-    next.inspecting = null;
     const d = DISTRICT_BY_ID[action.district];
-    push(next, `You cut across town to ${d.name}. ${d.blurb}`);
-    if (angelaPresent(next)) push(next, angelaHook(next));
-    maybeEncounter(next, sheet, isNight(next) ? 8 : 0, "travel");
+    return applyAction(next, sheet, { type: "navigate", x: dest.x, z: dest.z, label: d.name });
+  }
+
+  if (action.type === "navigate") {
+    if (closeTo(next, action.x, action.z, action.then ? 8 : 6)) {
+      next.nav = null;
+      syncDistrict(next);
+      if (!action.then) {
+        push(next, `You are already at ${action.label}.`);
+        return { life: next, character: sheet };
+      }
+      next.nav = {
+        id: "here",
+        label: action.label,
+        x: action.x,
+        z: action.z,
+        waypoints: [],
+        then: action.then,
+        who: action.who,
+        building: action.building,
+        clear: true,
+      };
+      return applyAction(next, sheet, { type: "navArrive" });
+    }
+    startWalk(next, action.x, action.z, action.label, action.then, action.who, action.building);
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "cancelNav") {
+    if (!next.nav) return { life: next, character: sheet };
+    const label = next.nav.label;
+    next.nav = null;
+    push(next, `You stop heading for ${label}.`);
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "navArrive") {
+    const plan = next.nav;
+    next.nav = null;
+    if (!plan) return { life: next, character: sheet };
+    if (plan.waypoints.length) {
+      next.posX = plan.x;
+      next.posZ = plan.z;
+    }
+    syncDistrict(next);
+    if (plan.building) next.inspecting = plan.building;
+    if (plan.waypoints.length) push(next, `${plan.label}. You walked it.`);
+    if (plan.then === "talk" && plan.who) {
+      return applyAction(next, sheet, { type: "streetTalk", actorId: plan.who });
+    }
+    if (plan.then === "angela") return applyAction(next, sheet, { type: "talk", who: "angela" });
+    if (plan.then === "meet-dealer" && plan.who) {
+      return applyAction(next, sheet, { type: "seekDealer", dealer: plan.who });
+    }
+    if (plan.then === "meet-mark" && plan.who) {
+      return applyAction(next, sheet, { type: "seekMark", mark: plan.who });
+    }
+    if (plan.then === "sleep") return applyAction(next, sheet, { type: "sleep" });
+    if (plan.then === "enter") return applyAction(next, sheet, { type: "enter" });
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "pin") {
+    const name = action.name.trim().slice(0, 42) || "Corner";
+    const book = (next.book ?? []).map((p) => ({ ...p }));
+    const near = book.findIndex((p) => Math.hypot(p.x - action.x, p.z - action.z) < 6);
+    if (near >= 0) {
+      book[near] = { ...book[near]!, name };
+      push(next, `${name}. Updated in the book.`);
+    } else {
+      book.push({ id: `pin-${Date.now().toString(36)}`, name, x: action.x, z: action.z });
+      push(next, `${name} is in the book. You can walk back.`);
+    }
+    next.book = book;
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "forgetPin") {
+    const book = next.book ?? [];
+    const gone = book.find((p) => p.id === action.id);
+    next.book = book.filter((p) => p.id !== action.id);
+    push(next, gone ? `${gone.name} is out of the book.` : "That corner was already gone.");
     return { life: next, character: sheet };
   }
 
   if (action.type === "sleep") {
     const home = housingOf(next);
-    if (home && home.district !== next.district) {
+    if (home) {
+      const dest = DISTRICT_POS[home.district];
+      if (!closeTo(next, dest.x, dest.z, 16)) {
+        startWalk(next, dest.x, dest.z, home.name, "sleep");
+        push(next, `The bed is at ${home.name}. You walk. Sleep starts at the door.`);
+        return { life: next, character: sheet };
+      }
       next.district = home.district;
-      push(next, `You walk home to ${home.name}.`);
     }
     const hours = next.hour >= 8 ? 24 - next.hour + 8 : 8 - next.hour;
     tick(next, Math.max(6, hours));
@@ -2269,10 +2631,12 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       push(next, "That is not a rented room.");
       return { life: next, character: sheet };
     }
-    if (home.district !== next.district) {
-      push(next, `Go to ${DISTRICT_BY_ID[home.district].name} first.`);
+    if (!closeTo(next, DISTRICT_POS[home.district].x, DISTRICT_POS[home.district].z, 16)) {
+      startWalk(next, DISTRICT_POS[home.district].x, DISTRICT_POS[home.district].z, home.name);
+      push(next, `The room is at ${home.name}. You walk. Pay when you are at the door.`);
       return { life: next, character: sheet };
     }
+    next.district = home.district;
     if (home.requiresGang && (next.gangId !== home.requiresGang || next.gangRank < (home.requiresRank ?? 0))) {
       push(next, home.note);
       return { life: next, character: sheet };
@@ -2296,10 +2660,12 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       push(next, "That is not a squat.");
       return { life: next, character: sheet };
     }
-    if (home.district !== next.district) {
-      push(next, `Go to ${DISTRICT_BY_ID[home.district].name} first.`);
+    if (!closeTo(next, DISTRICT_POS[home.district].x, DISTRICT_POS[home.district].z, 16)) {
+      startWalk(next, DISTRICT_POS[home.district].x, DISTRICT_POS[home.district].z, home.name);
+      push(next, `${home.name} is not this corner. You walk. The claim waits until you arrive.`);
       return { life: next, character: sheet };
     }
+    next.district = home.district;
     next.housingId = home.id;
     next.squatProgress = 0;
     tick(next, 1);
@@ -2382,12 +2748,11 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
       next.caps -= 50;
       push(next, `Fifty caps buys a seat at the table. They still do not like you.`);
     }
-    next.gangId = action.gang;
-    next.gangRank = 1;
+    const joined = clockFamily(next, sheet);
+    for (const line of joined.lines) push(next, line);
     next.gangRep[action.gang] += 5;
     next.gangRep[GANG_BY_ID[action.gang].rival] -= 8;
-    const g = GANG_BY_ID[action.gang];
-    push(next, `You are in with the ${g.name}. ${g.head}. Rank: ${g.ranks[0]}. ${g.credo}`);
+    if (joined.xp) sheet = award(next, sheet, joined.xp, "An asset. Not a chair.");
     return { life: next, character: sheet };
   }
 
@@ -2401,73 +2766,60 @@ export function applyAction(life: RenoLife, character: Character, action: RenoAc
     next.heat = clamp(next.heat + 8, 0, 100);
     next.gangId = null;
     next.gangRank = 0;
+    if (next.post?.kind === "family") next.post = null;
     tick(next, 1);
     push(next, `You walk from the ${name}. They will remember.`);
     maybeEncounter(next, sheet, 16, "wander");
     return { life: next, character: sheet };
   }
 
-  if (action.type === "gangJob") {
-    if (!next.gangId) {
-      push(next, "No family, no work.");
+  if (action.type === "gangJob" || action.type === "answerCall") {
+    if (next.gangId && next.post?.kind !== "family") {
+      const g = GANG_BY_ID[next.gangId];
+      const rank = next.gangRank ?? 0;
+      next.post = {
+        kind: "family",
+        gang: next.gangId,
+        employer: g.name,
+        title: rank <= 0 ? "On the books" : (g.ranks[rank - 1] ?? "On the books"),
+        rank,
+        merit: rank * 18,
+        calls: 0,
+        pending: null,
+      };
+    }
+    if (next.post?.pending || action.type === "answerCall") {
+      if (next.post?.pending) tick(next, 3);
+      const res = answerCall(next, sheet);
+      for (const line of res.lines) push(next, line);
+      if (res.xp) sheet = award(next, sheet, res.xp, "The call.");
       return { life: next, character: sheet };
     }
-    const gang = GANG_BY_ID[next.gangId];
-    if (next.district !== gang.turf && d100() <= 40) {
-      push(next, `The ${gang.name} want you on turf. Go to ${DISTRICT_BY_ID[gang.turf].name}.`);
-      return { life: next, character: sheet };
-    }
-    tick(next, 4);
-    const jobs: Record<GangId, { skill: SkillId; ok: string; pay: number }[]> = {
-      mordinos: [
-        { skill: "sneak", ok: "Jet from the Stables. Myron doesn't look up. You don't ask whose lungs.", pay: 28 },
-        { skill: "unarmed", ok: "Golden Globes muscle. Little Jesus wanted a reminder delivered in teeth.", pay: 26 },
-        { skill: "steal", ok: "A bag off a Virgin Street tourist. Big Jesus likes volume.", pay: 24 },
-      ],
-      wrights: [
-        { skill: "meleeWeapons", ok: "A still, a cousin, a Mordino dealer who won't sell on Wright blocks.", pay: 22 },
-        { skill: "speech", ok: "You ask around about Richard. Jet. A party. Nobody wants to say Mordino.", pay: 20 },
-        { skill: "repair", ok: "The stills run. Orville nods like that's love.", pay: 18 },
-      ],
-      salvatores: [
-        { skill: "smallGuns", ok: "A quiet door. Mason said don't miss. You didn't.", pay: 36 },
-        { skill: "energyWeapons", ok: "Louis Salvatore's toy stays holstered. You watched the drop anyway.", pay: 40 },
-        { skill: "sneak", ok: "Old Reno. A room that didn't happen. The oxygen tank hissed once.", pay: 34 },
-      ],
-      bishops: [
-        { skill: "gambling", ok: "Shark Club floor. The books like your numbers. Mr. Bishop does not look up.", pay: 32 },
-        { skill: "speech", ok: "A message for a man who still thinks NCR is a rumor. He thinks otherwise now.", pay: 34 },
-        { skill: "smallGuns", ok: "Collection. Polite. The smile did not reach anything.", pay: 30 },
-      ],
-    };
-    const pool = jobs[next.gangId];
-    const job = pool[dN(pool.length) - 1]!;
-    const roll = skillRoll(skill(sheet, job.skill), next.gangRank * 2);
-    const pay = job.pay + next.gangRank * 6 + dN(10);
-    if (roll.fumble) {
-      const gained = addHeat(next, sheet, 8, true);
-      push(next, `The job goes loud (${roll.roll}). ${gang.head} is not pleased. Heat +${gained}. ${GANG_BY_ID[gang.rival].name} will walk it off later.`);
-      next.friction[gang.rival] = clamp((next.friction[gang.rival] ?? 0) + 12, 0, 100);
-      noteOutrage(next, gang.rival, 6);
-      return { life: next, character: sheet };
-    }
-    if (roll.success) {
-      next.caps += pay;
-      next.gangRep[next.gangId] += 3;
-      next.gangRep[gang.rival] -= 2;
-      if (next.gangId === "mordinos") next.stash.jet += 1;
-      if (next.gangRep[next.gangId] >= 8 + next.gangRank * 10 && next.gangRank < 5) {
-        next.gangRank += 1;
-        push(next, `${gangRankName(next)}. ${gang.head} noticed.`);
-      }
-      push(next, `${job.ok} +${pay} caps.`);
-      sheet = award(next, sheet, 85, "Family work.");
-    } else {
-      const crumbs = Math.round(pay / 3);
-      next.caps += crumbs;
-      push(next, `Sloppy work (${roll.roll} vs ${roll.target}%). +${crumbs} caps and a look.`);
-    }
-    maybeEncounter(next, sheet, 6, "work");
+    const word = maybeFamilyCall(next, sheet);
+    push(next, word ?? "No word. A family is a phone, not a shift. You stay on the books until they need a skill.");
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "ignoreCall") {
+    push(next, ignoreCall(next));
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "clockIn") {
+    const stall = next.district === "market" || next.district === "motel" || next.district === "jungle" || next.district === "stables";
+    const owned = Boolean(next.gangId) || next.post?.kind === "family";
+    const canWork = action.post === "family" ? true : action.post === "counter" ? !owned && stall : !owned;
+    if (canWork && (action.post === "counter" || action.post === "raid")) tick(next, 6);
+    const res =
+      action.post === "counter" ? clockCounter(next, sheet) : action.post === "family" ? clockFamily(next, sheet) : clockRaid(next, sheet);
+    if (canWork && action.post === "family" && res.xp > 0) tickMinutes(next, 20);
+    for (const line of res.lines) push(next, line);
+    if (res.xp) sheet = award(next, sheet, res.xp, action.post === "raid" ? "A day off the books." : "The shift ends.");
+    return { life: next, character: sheet };
+  }
+
+  if (action.type === "vassal") {
+    push(next, takeVassal(next, action.take));
     return { life: next, character: sheet };
   }
 

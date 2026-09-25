@@ -65,6 +65,8 @@ function migrate(life: RenoLife, hpMax: number): RenoLife {
         ? { ...life.combat, map: life.combat.map ?? null, targetId: life.combat.targetId ?? "" }
         : null,
     minute: life.minute ?? 0,
+    second: life.second ?? 0,
+    clock: life.clock ?? 1,
     loot: life.loot ?? null,
     inspecting: life.inspecting ?? null,
     insideId: life.insideId ?? null,
@@ -101,6 +103,8 @@ function migrate(life: RenoLife, hpMax: number): RenoLife {
     grudges: life.grudges ?? {},
     absent: life.absent ?? {},
     reprieveMinute: life.reprieveMinute ?? 0,
+    book: life.book ?? [],
+    nav: life.nav ?? null,
   };
   return ensureCity(base);
 }

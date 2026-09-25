@@ -212,7 +212,11 @@ export interface Combatant {
   crippled: Partial<Record<BodyPart, boolean>>;
   hexQ: number;
   hexR: number;
+  /** Ticks until this body can swing or shoot again. Field fights only. */
+  cool?: number;
   kind: string;
+  /** Gun hits still on the body. */
+  wounds?: number;
 }
 
 export interface CombatState {
@@ -229,12 +233,28 @@ export interface CombatState {
   purse?: number;
   map: HexBoard | null;
   targetId: string;
+  /** Street fights use the real block, not a turn order. */
+  field?: boolean;
   /** Street fights pause the city and use hexes scaled onto the asphalt. */
   onMap?: boolean;
   originX?: number;
   originZ?: number;
   hexScale?: number;
   cause?: "feud" | "hunt" | "crime" | "ring";
+  /** Gunshots fired this fight. The street plays one crack per count. */
+  bangs?: number;
+}
+
+export interface StreetCorpse {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  sprite: string;
+  wounds: number;
+  cleanMinute: number;
+  cleaner: "cops" | "people";
+  cleanerName: string;
 }
 
 export interface LootReport {
@@ -266,6 +286,28 @@ export interface Dealer {
   wares: StashId[];
   size: "runner" | "corner" | "house";
   note: string;
+}
+
+export interface AddressPin {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+}
+
+export type RouteThen = "talk" | "meet-dealer" | "meet-mark" | "sleep" | "enter" | "angela";
+
+/** A walk the legs are already doing. Not a teleport. */
+export interface RoutePlan {
+  id: string;
+  label: string;
+  x: number;
+  z: number;
+  waypoints: Array<{ x: number; z: number }>;
+  then?: RouteThen;
+  who?: string;
+  building?: string;
+  clear: boolean;
 }
 
 export interface RenoBusiness {
@@ -302,6 +344,24 @@ export interface StreetJob {
   pay: number;
   item: string;
   blurb: string;
+}
+
+/** A clock-in. The city uses you, then gives you back. Rank is merit, not a calendar. */
+export interface Employment {
+  kind: "counter" | "family" | "raid";
+  gang?: GangId;
+  employer: string;
+  title: string;
+  rank: number;
+  merit: number;
+  calls: number;
+  pending?: { skill: string; where: string; blurb: string; pay: number } | null;
+}
+
+export interface VassalPaper {
+  gang: GangId;
+  cut: number;
+  since: number;
 }
 
 export interface StoryState {
@@ -355,6 +415,10 @@ export interface RenoLife {
   day: number;
   hour: number;
   minute: number;
+  /** 0–59. The street clock runs in real seconds unless you speed it up. */
+  second?: number;
+  /** Game seconds per real second. 1 is real time. 0 holds the clock. */
+  clock?: number;
   caps: number;
   hp: number;
   hpMax: number;
@@ -405,13 +469,18 @@ export interface RenoLife {
   insideId: string | null;
   npcMemory: Record<string, NpcMemory>;
   job: StreetJob | null;
+  /** Clocked work. Not the same as a one-off delivery. */
+  post?: Employment | null;
+  /** A family takes a cut and lends muscle. You are not made. */
+  vassal?: VassalPaper | null;
+  vassalOffer?: GangId | null;
   /** Last game-day the families and the tills ran without you. */
   worldDay: number;
   /** How hard the block flinches. Lags behind a body, fades over days. */
   fear: number;
   /** What strangers actually believe. Lags fame. Fear drags it down. */
   regard: number;
-  /** The chase. Trails heat. Cops walk only after this catches up. */
+  /** The chase. Trails heat. Families walk it off the strip once this catches up. */
   warrant: number;
   /** Minutes a need has stayed ugly. Penalties wait on this, not the first red tick. */
   strain: number;
@@ -423,14 +492,29 @@ export interface RenoLife {
   grudges: Record<string, number>;
   /** Game-day a soul comes back after a street death. */
   absent: Record<string, number>;
+  /** Bodies still on the asphalt. Horizontal. The code or a stranger moves them. */
+  corpses?: StreetCorpse[];
+  /** Knocked out on the pavement. The body stays until they get up. */
+  flat?: boolean;
+  /** How far each private dance has gone. Keyed by revue id. */
+  privateShows?: Record<string, number>;
   /** Absolute minute before the street will square up with you again. */
   reprieveMinute: number;
   /** Far simulation: tills, rooms, family books, story. Advanced once an hour. */
   pulse?: CityPulse;
+  /** Corners the player wrote down. Key districts stay in the book without being saved. */
+  book?: AddressPin[];
+  /** Current on-foot route. Null when you are not being walked somewhere. */
+  nav?: RoutePlan | null;
 }
 
 export type RenoAction =
   | { type: "travel"; district: DistrictId }
+  | { type: "navigate"; x: number; z: number; label: string; then?: RouteThen; who?: string; building?: string }
+  | { type: "cancelNav" }
+  | { type: "navArrive" }
+  | { type: "pin"; name: string; x: number; z: number }
+  | { type: "forgetPin"; id: string }
   | { type: "sleep" }
   | { type: "wander" }
   | { type: "rent"; housing: HousingId }
@@ -454,12 +538,16 @@ export type RenoAction =
   | { type: "arrive"; district: DistrictId; x: number; z: number }
   | { type: "walkTick"; x: number; z: number }
   | { type: "tickMinute" }
+  | { type: "tickClock"; seconds: number }
+  | { type: "setClock"; pace: number }
   | { type: "inspect"; building: string | null }
   | { type: "enter" }
   | { type: "exit" }
   | { type: "street"; act: "talk" | "lean" | "bribe" | "shake" | "tip" | "door" | "deliver" }
   | { type: "streetTalk"; actorId: string }
   | { type: "mill" }
+  | { type: "linger" }
+  | { type: "privateDance"; dancer: string }
   | { type: "loot"; take: boolean }
   | { type: "eat" }
   | { type: "drink"; kind: "water" | "vodka" }
@@ -477,7 +565,12 @@ export type RenoAction =
   | { type: "lab" }
   | { type: "stock"; kind: "meal" | "water" }
   | { type: "streetContact"; x: number; z: number; reason: string; surprise: boolean; cause: "feud" | "hunt" | "crime"; foes: Array<{ id: string; name: string; kind: string; x: number; z: number }>; allies: Array<{ id: string; name: string; kind: string; x: number; z: number }> }
-  | { type: "combat"; move: CombatMove; part?: BodyPart; q?: number; r?: number; targetId?: string };
+  | { type: "combat"; move: CombatMove; part?: BodyPart; q?: number; r?: number; targetId?: string }
+  | { type: "rise" }
+  | { type: "clockIn"; post: "counter" | "family" | "raid" }
+  | { type: "answerCall" }
+  | { type: "ignoreCall" }
+  | { type: "vassal"; take: boolean };
 
 export type CombatMove =
   | "advance"
@@ -495,4 +588,6 @@ export type CombatMove =
   | "cover"
   | "defend"
   | "flee"
-  | "hex-step";
+  | "hex-step"
+  | "field-walk"
+  | "field-tick";

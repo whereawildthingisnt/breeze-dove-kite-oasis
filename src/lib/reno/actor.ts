@@ -621,7 +621,7 @@ export function streetFoe(kind: CombatKind, districtDanger: number, gang?: strin
   if (gang === "salvatores") return combatantFromFoe(FOES.salvatore!);
   if (gang === "bishops") return combatantFromFoe(FOES.bishop!);
   if (districtDanger >= 6) return combatantFromFoe(FOES.tough!);
-  if (districtDanger >= 4) return combatantFromFoe(Math.random() < 0.4 ? FOES.cop! : FOES.tough!);
+  if (districtDanger >= 4) return combatantFromFoe(FOES.tough!);
   return combatantFromFoe(FOES.junkie!);
 }
 

@@ -1,4 +1,5 @@
 import type { DistrictId, EncounterSetting, HexBoard, HexCell, HexKind } from "./types";
+import { CITY, type CityBuilding } from "./city";
 
 const DIRS: Array<[number, number]> = [
   [1, 0],
@@ -311,4 +312,83 @@ export function boardBounds(board: HexBoard, size: number) {
     width: maxX - minX + pad * 2,
     height: maxY - minY + pad * 2,
   };
+}
+
+/** City fights are a square of the real block, not a decorated arena. */
+export const FIELD_SPAN = 40;
+
+function footprint(b: CityBuilding): { hw: number; hd: number } {
+  const hw = b.width / 2;
+  const hd = (b.depth ?? Math.max(4.2, b.width * 0.55)) / 2;
+  return { hw, hd };
+}
+
+function insideBuilding(b: CityBuilding, x: number, z: number): boolean {
+  const { hw, hd } = footprint(b);
+  return Math.abs(x - b.x) <= hw && Math.abs(z - b.z) <= hd;
+}
+
+function onShell(b: CityBuilding, x: number, z: number): boolean {
+  const { hw, hd } = footprint(b);
+  const dx = hw - Math.abs(x - b.x);
+  const dz = hd - Math.abs(z - b.z);
+  return dx < 1.4 || dz < 1.4;
+}
+
+function onDoor(b: CityBuilding, x: number, z: number): boolean {
+  const { hw, hd } = footprint(b);
+  const face = b.face ?? "+z";
+  if (face === "+z") return Math.abs(x - b.x) < 2.2 && Math.abs(z - (b.z + hd)) < 1.8;
+  if (face === "-z") return Math.abs(x - b.x) < 2.2 && Math.abs(z - (b.z - hd)) < 1.8;
+  if (face === "+x") return Math.abs(z - b.z) < 2.2 && Math.abs(x - (b.x + hw)) < 1.8;
+  return Math.abs(z - b.z) < 2.2 && Math.abs(x - (b.x - hw)) < 1.8;
+}
+
+/**
+ * 40×40 hex square centered on the player. A street fight is the street and the
+ * buildings. A fight indoors is that room, its walls, and the door.
+ */
+export function locationSquare(originX: number, originZ: number, setting: EncounterSetting, night?: boolean): EncounterLayout {
+  const lo = -FIELD_SPAN / 2;
+  const hi = lo + FIELD_SPAN - 1;
+  const near = CITY.buildings.filter((b) => Math.abs(b.x - originX) < 100 && Math.abs(b.z - originZ) < 100);
+  const home = near.find((b) => insideBuilding(b, originX, originZ));
+  const cars = CITY.cars.filter((c) => Math.abs(c.x - originX) < 90 && Math.abs(c.z - originZ) < 90);
+  const junk = CITY.junk.filter((j) => Math.abs(j.x - originX) < 90 && Math.abs(j.z - originZ) < 90);
+  const cells: HexCell[] = [];
+  for (let q = lo; q <= hi; q++) {
+    for (let r = lo; r <= hi; r++) {
+      const at = hexToWorld(q, r, originX, originZ);
+      let kind: HexKind = "open";
+      for (const b of near) {
+        if (!insideBuilding(b, at.x, at.z)) continue;
+        if (home && b.id === home.id) {
+          const box = footprint(b);
+          const tiny = box.hw < 2.4 || box.hd < 2.4;
+          kind = !tiny && onShell(b, at.x, at.z) && !onDoor(b, at.x, at.z) ? "wall" : "open";
+        } else {
+          kind = "wall";
+        }
+        break;
+      }
+      if (kind === "open") {
+        if (cars.some((c) => Math.abs(at.x - c.x) < 1.6 && Math.abs(at.z - c.z) < 2.5)) kind = "cover";
+        else if (junk.some((j) => Math.hypot(at.x - j.x, at.z - j.z) < 1.3)) kind = "cover";
+      }
+      const edge = q === lo || r === lo || q === hi || r === hi;
+      if (edge && kind !== "wall") kind = "exit";
+      cells.push({ q, r, kind });
+    }
+  }
+  const origin = cells.find((c) => c.q === 0 && c.r === 0);
+  if (origin && origin.kind === "wall") origin.kind = "open";
+  const map: HexBoard = {
+    setting,
+    radius: FIELD_SPAN,
+    cells,
+    scene: night && (setting === "street" || setting === "alley") ? "/reno/scenes/night.webp" : SCENES[setting],
+  };
+  const foes = openNear(map, { q: 0, r: 0 }, new Set(["0,0"]), 48).filter((h) => axialDistance(0, 0, h.q, h.r) >= 2);
+  if (!foes.length) foes.push({ q: 2, r: 0 }, { q: -2, r: 0 }, { q: 0, r: 2 });
+  return { map, player: { q: 0, r: 0 }, foes };
 }

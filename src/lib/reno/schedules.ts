@@ -18,6 +18,8 @@ export type ScheduleRole =
   | "guide"
   | "host"
   | "porter"
+  | "dancer"
+  | "walker"
   | "wild";
 
 export type StopId = "home" | "work" | "lunch" | "social" | "stash" | "hq" | "drop" | "patrol" | "target";
@@ -136,6 +138,18 @@ export const SCHEDULES: Record<ScheduleRole, SchedulePhase[]> = {
     { from: 15, to: 18, stop: "home", doing: "The day wage, already spent.", where: "home" },
     { from: 18, to: 23, stop: "work", doing: "Night desk. Hourly keys for people passing through.", where: "the motel" },
     { from: 23, to: 24, stop: "home", doing: "Bike parked. Done.", where: "home" },
+  ],
+  dancer: [
+    { from: 4, to: 8, stop: "home", doing: "Asleep above the club.", where: "a room upstairs" },
+    { from: 8, to: 16, stop: "work", doing: "On the floor. She walks over if you stay.", where: "the club floor" },
+    { from: 16, to: 24, stop: "work", doing: "Off the stage. Walking over if you have caps.", where: "the club floor" },
+    { from: 0, to: 4, stop: "work", doing: "Last set. She comes off the stage if you stay.", where: "the club floor" },
+  ],
+  walker: [
+    { from: 5, to: 16, stop: "home", doing: "Asleep. The rate is not a morning price.", where: "a rented room" },
+    { from: 16, to: 18, stop: "work", doing: "Getting ready. The street is not open yet.", where: "a room" },
+    { from: 18, to: 24, stop: "work", doing: "On the walk. Talk is free. The hour is not.", where: "the stroll" },
+    { from: 0, to: 5, stop: "work", doing: "Still out. The last hour is quieter and the price is the same.", where: "the stroll" },
   ],
   wild: [
     { from: 6, to: 18, stop: "work", doing: "Out where the graves thin.", where: "the hill" },
@@ -264,6 +278,10 @@ export function schedulePoint(soul: SoulDef, life: RenoLife): ScheduleSpot {
 }
 
 export function activityLine(soul: SoulDef, life: RenoLife): string {
+  const onFloor = life.hour >= 8 || life.hour < 4;
+  if (soul.role === "dancer" && onFloor && soul.pitch) return soul.pitch;
+  const stroll = life.hour >= 18 || life.hour < 5;
+  if (soul.role === "walker" && stroll && soul.pitch) return soul.pitch;
   return schedulePoint(soul, life).doing;
 }
 

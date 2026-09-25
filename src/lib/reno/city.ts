@@ -1,13 +1,34 @@
 import type { BuildingUse, DistrictId, ZoneKind } from "./types";
 import { DISTRICTS, DISTRICT_POS } from "./world";
 import { flavorFor, useFromSprite, zoneAt } from "./zones";
-import { MILE } from "./scale";
+import { CAR_W, floors, MILE, PARK_GAP, SIDEWALK } from "./scale";
+import { weatherAt, type Weather } from "./weather";
 
 export { zoneAt } from "./zones";
 
-export const CITY_POPULATION = 108_640;
+export const CITY_POPULATION = 264_165;
 
-export type BuildingForm = "box" | "step" | "tower" | "wing" | "motel" | "shack" | "casino" | "shed";
+export type BuildingForm =
+  | "box"
+  | "step"
+  | "tower"
+  | "wing"
+  | "motel"
+  | "shack"
+  | "casino"
+  | "shed"
+  | "walkup"
+  | "hotel"
+  | "marquee"
+  | "depot"
+  | "garage"
+  | "church"
+  | "arena"
+  | "loft"
+  | "diner"
+  | "pawn"
+  | "slab"
+  | "court";
 
 export interface CityBuilding {
   id: string;
@@ -73,21 +94,21 @@ export interface CityProp {
 }
 
 
-const LANDMARK: Record<DistrictId, { sprite: string; w: number; h: number; neon?: boolean; form: BuildingForm }> = {
-  virgin: { sprite: "/reno/sprites/neon-casino.webp", w: 16, h: 9.2, neon: true, form: "casino" },
-  shark: { sprite: "/reno/sprites/casino-tower.webp", w: 10, h: 20, neon: true, form: "tower" },
-  desperado: { sprite: "/reno/sprites/neon-casino.webp", w: 15, h: 8.6, neon: true, form: "casino" },
-  bishop: { sprite: "/reno/sprites/apartment.webp", w: 10, h: 14, neon: true, form: "step" },
-  mordino: { sprite: "/reno/bar.webp", w: 10, h: 9, neon: true, form: "wing" },
-  salvatore: { sprite: "/reno/bar.webp", w: 9.2, h: 8.4, form: "wing" },
-  motel: { sprite: "/reno/sprites/motel.webp", w: 12, h: 8, form: "motel" },
-  stables: { sprite: "/reno/sprites/ring.webp", w: 11, h: 8, form: "box" },
-  jungle: { sprite: "/reno/sprites/shack.webp", w: 7, h: 6.2, form: "shack" },
-  wright: { sprite: "/reno/sprites/motel.webp", w: 10, h: 8, form: "motel" },
-  chop: { sprite: "/reno/sprites/warehouse.webp", w: 11, h: 8.5, form: "shed" },
-  rail: { sprite: "/reno/rail.webp", w: 13, h: 8, form: "shed" },
-  market: { sprite: "/reno/sprites/shop.webp", w: 8, h: 7, form: "wing" },
-  golgotha: { sprite: "/reno/crypt.webp", w: 9, h: 8, form: "box" },
+const LANDMARK: Record<DistrictId, { sprite: string; w: number; h: number; depth: number; neon?: boolean; form: BuildingForm }> = {
+  virgin: { sprite: "/reno/sprites/neon-casino.webp", w: 48, h: floors(5), depth: 28, neon: true, form: "casino" },
+  shark: { sprite: "/reno/sprites/casino-tower.webp", w: 16, h: floors(16), depth: 14, neon: true, form: "tower" },
+  desperado: { sprite: "/reno/sprites/neon-casino.webp", w: 40, h: floors(3), depth: 22, neon: true, form: "marquee" },
+  bishop: { sprite: "/reno/sprites/apartment.webp", w: 24, h: floors(9), depth: 18, neon: true, form: "slab" },
+  mordino: { sprite: "/reno/bar.webp", w: 22, h: floors(3), depth: 16, neon: true, form: "marquee" },
+  salvatore: { sprite: "/reno/bar.webp", w: 18, h: floors(4), depth: 14, form: "slab" },
+  motel: { sprite: "/reno/sprites/motel.webp", w: 46, h: floors(3), depth: 16, form: "hotel" },
+  stables: { sprite: "/reno/sprites/ring.webp", w: 34, h: floors(3), depth: 26, form: "arena" },
+  jungle: { sprite: "/reno/sprites/shack.webp", w: 9, h: 3.6, depth: 7, form: "shack" },
+  wright: { sprite: "/reno/sprites/motel.webp", w: 30, h: floors(3), depth: 20, form: "court" },
+  chop: { sprite: "/reno/sprites/warehouse.webp", w: 38, h: 11.2, depth: 22, form: "loft" },
+  rail: { sprite: "/reno/rail.webp", w: 52, h: 12.4, depth: 20, form: "depot" },
+  market: { sprite: "/reno/sprites/shop.webp", w: 18, h: floors(2), depth: 14, form: "pawn" },
+  golgotha: { sprite: "/reno/crypt.webp", w: 16, h: floors(2), depth: 12, form: "church" },
 };
 
 const CARS = ["/reno/sprites/sedan.webp", "/reno/sprites/coupe.webp"];
@@ -120,8 +141,8 @@ function stamp(
 
 const LANDMARK_LORE: Partial<Record<DistrictId, { rumor: string; people: string }>> = {
   virgin: {
-    rumor: "The Strip. Cops walk this curb. Alleys one block off do not.",
-    people: "Tourists, dealers at the door, a cop who wants a donut and a bribe.",
+    rumor: "The Strip. Families keep it pretty. Alleys one block off do not.",
+    people: "Tourists, dealers at the door, a floor man who wants a bribe and not a scene.",
   },
   shark: {
     rumor: "John Bishop's house. Angela on the second-floor rail. Dress code includes a gun.",
@@ -185,42 +206,81 @@ function onRoad(x: number, z: number, roads: CityRoad[], pad = 3.2): boolean {
   return roads.some((r) => Math.abs(x - r.x) <= r.w / 2 + pad && Math.abs(z - r.z) <= r.d / 2 + pad);
 }
 
-function parkBeside(x: number, z: number, roads: CityRoad[]): { x: number; z: number } {
-  const push = (px: number, pz: number) => {
-    for (let pass = 0; pass < 4; pass++) {
-      let moved = false;
-      for (const road of roads) {
-        const horizontal = road.w >= road.d;
-        if (horizontal) {
-          if (Math.abs(px - road.x) > road.w / 2 + 2) continue;
-          if (Math.abs(pz - road.z) > road.d / 2 + 5.5) continue;
-          const s = pz >= road.z ? 1 : -1;
-          pz = road.z + s * (road.d / 2 + 7.2);
-          moved = true;
-        } else {
-          if (Math.abs(pz - road.z) > road.d / 2 + 2) continue;
-          if (Math.abs(px - road.x) > road.w / 2 + 5.5) continue;
-          const s = px >= road.x ? 1 : -1;
-          px = road.x + s * (road.w / 2 + 7.2);
-          moved = true;
-        }
-      }
-      if (!moved) break;
+/** Put a landmark on the sidewalk of the nearest street, inside the block, not in the lanes. */
+function seatLandmark(
+  x: number,
+  z: number,
+  front: number,
+  depth: number,
+  roads: CityRoad[],
+): { x: number; z: number; width: number; depth: number } {
+  const local = roads.filter((r) => r.w < 400 && r.d < 400);
+  const horiz = local.filter((r) => r.w >= r.d);
+  const vert = local.filter((r) => r.d > r.w);
+  let road = horiz[0]!;
+  let best = Infinity;
+  for (const r of horiz) {
+    if (x < r.x - r.w / 2 - 20 || x > r.x + r.w / 2 + 20) continue;
+    const d = Math.abs(z - r.z);
+    if (d < best) {
+      best = d;
+      road = r;
     }
-    return { x: px, z: pz };
-  };
-  const first = push(x, z);
-  let dx = first.x - x;
-  let dz = first.z - z;
-  let dist = Math.hypot(dx, dz);
-  if (dist < 0.8) {
-    dx = 0;
-    dz = 1;
-    dist = 1;
   }
-  const clear = 11;
-  const pulled = dist < clear ? push(x + (dx / dist) * clear, z + (dz / dist) * clear) : first;
-  return pulled;
+  const side = z >= road.z ? 1 : -1;
+  const crossings = vert
+    .filter((v) => Math.abs(v.z - road.z) <= v.d / 2 + road.d)
+    .sort((a, b) => a.x - b.x);
+  let left = road.x - road.w / 2 + 4;
+  let right = road.x + road.w / 2 - 4;
+  let gapFound = false;
+  for (let i = 0; i < crossings.length - 1; i++) {
+    const a = crossings[i]!;
+    const b = crossings[i + 1]!;
+    const innerL = a.x + a.w / 2;
+    const innerR = b.x - b.w / 2;
+    if (innerR - innerL < 12) continue;
+    if (x >= a.x - 6 && x <= b.x + 6) {
+      left = innerL;
+      right = innerR;
+      gapFound = true;
+      break;
+    }
+  }
+  if (!gapFound && crossings.length >= 2) {
+    let bi = 0;
+    let bd = Infinity;
+    for (let i = 0; i < crossings.length - 1; i++) {
+      const mid = (crossings[i]!.x + crossings[i + 1]!.x) / 2;
+      const d = Math.abs(mid - x);
+      const span = crossings[i + 1]!.x - crossings[i + 1]!.w / 2 - (crossings[i]!.x + crossings[i]!.w / 2);
+      if (span > 12 && d < bd) {
+        bd = d;
+        bi = i;
+      }
+    }
+    const a = crossings[bi]!;
+    const b = crossings[bi + 1]!;
+    left = a.x + a.w / 2;
+    right = b.x - b.w / 2;
+  }
+  const width = Math.min(front, Math.max(8, right - left - 1.4));
+  const cx = (left + right) / 2;
+  let room = 36;
+  for (const h of horiz) {
+    if (h === road) continue;
+    if (Math.abs(h.x - cx) > h.w / 2) continue;
+    if (side > 0 && h.z > road.z) {
+      const space = h.z - h.d / 2 - (road.z + road.d / 2) - SIDEWALK * 2;
+      if (space > 4) room = Math.min(room, space);
+    } else if (side < 0 && h.z < road.z) {
+      const space = road.z - road.d / 2 - (h.z + h.d / 2) - SIDEWALK * 2;
+      if (space > 4) room = Math.min(room, space);
+    }
+  }
+  const deep = Math.min(depth, Math.max(8, room));
+  const cz = road.z + side * (road.d / 2 + SIDEWALK + deep / 2 + 0.5);
+  return { x: cx, z: cz, width, depth: deep };
 }
 
 export function buildCity(): {
@@ -234,34 +294,34 @@ export function buildCity(): {
 } {
   const rand = mulberry(2244);
   const roads: CityRoad[] = [
-    { x: 20, z: 0, w: 280, d: 10, name: "Virgin Street" },
-    { x: 20, z: 58, w: 240, d: 7, name: "Second Street" },
-    { x: 20, z: 102, w: 240, d: 7, name: "Wright Road" },
-    { x: 20, z: -40, w: 200, d: 7, name: "Bishop Street" },
-    { x: 20, z: 156, w: 100, d: 7, name: "Golgotha Road" },
-    { x: 36, z: -72, w: 160, d: 6, name: "North Cut" },
-    { x: 0, z: 50, w: 9, d: 250, name: "Main" },
-    { x: 48, z: 40, w: 9, d: 230, name: "Shark Street" },
-    { x: 96, z: 50, w: 8, d: 220, name: "Desperado" },
-    { x: -52, z: 50, w: 8, d: 200, name: "Mordino Way" },
-    { x: 132, z: 60, w: 8, d: 160, name: "Market Street" },
-    { x: -92, z: 50, w: 8, d: 140, name: "Salvatore" },
-    { x: 68, z: 92, w: 110, d: 7, name: "Yard Row" },
-    { x: -20, z: 28, w: 8, d: 90, name: "Jungle Cut" },
-    { x: 72, z: -20, w: 8, d: 80, name: "East Cut" },
-    { x: 178, z: 58, w: 78, d: 6, name: "East Second" },
-    { x: 196, z: 42, w: 6.5, d: 112, name: "Catclaw" },
-    { x: 176, z: 8, w: 68, d: 5.5, name: "Neon Spur" },
-    { x: 188, z: 90, w: 58, d: 5.5, name: "Lucky Lane" },
-    { x: -130, z: 16, w: 6, d: 92, name: "Dust Road" },
-    { x: -118, z: 46, w: 58, d: 5.5, name: "West Lot" },
-    { x: -124, z: -8, w: 48, d: 5.5, name: "Tin Row" },
+    { x: 20, z: 0, w: MILE, d: 14, name: "Virgin Street" },
+    { x: 20, z: 58, w: 240, d: 12, name: "Second Street" },
+    { x: 20, z: 102, w: 240, d: 12, name: "Wright Road" },
+    { x: 20, z: -40, w: 200, d: 12, name: "Bishop Street" },
+    { x: 20, z: 156, w: 100, d: 11, name: "Golgotha Road" },
+    { x: 36, z: -72, w: 160, d: 9, name: "North Cut" },
+    { x: 0, z: 50, w: 12, d: 250, name: "Main" },
+    { x: 48, z: 40, w: 12, d: 230, name: "Shark Street" },
+    { x: 96, z: 50, w: 11, d: 220, name: "Desperado" },
+    { x: -52, z: 50, w: 11, d: 200, name: "Mordino Way" },
+    { x: 132, z: 60, w: 11, d: 160, name: "Market Street" },
+    { x: -92, z: 50, w: 10, d: 140, name: "Salvatore" },
+    { x: 68, z: 80, w: 90, d: 8, name: "Yard Row" },
+    { x: -20, z: 28, w: 9, d: 90, name: "Jungle Cut" },
+    { x: 72, z: -20, w: 9, d: 80, name: "East Cut" },
+    { x: 178, z: 58, w: 78, d: 8, name: "East Second" },
+    { x: 196, z: 42, w: 8, d: 112, name: "Catclaw" },
+    { x: 176, z: 8, w: 68, d: 7.5, name: "Neon Spur" },
+    { x: 188, z: 90, w: 58, d: 7.5, name: "Lucky Lane" },
+    { x: -130, z: 16, w: 8, d: 92, name: "Dust Road" },
+    { x: -118, z: 46, w: 58, d: 7.5, name: "West Lot" },
+    { x: -124, z: -8, w: 48, d: 7.5, name: "Tin Row" },
   ];
 
   const buildings: CityBuilding[] = DISTRICTS.map((d, i) => {
     const p = DISTRICT_POS[d.id];
-    const spot = parkBeside(p.x, p.z, roads);
     const mark = LANDMARK[d.id];
+    const spot = seatLandmark(p.x, p.z, mark.w, mark.depth, roads);
     const lore = LANDMARK_LORE[d.id];
     return stamp(
       {
@@ -269,9 +329,9 @@ export function buildCity(): {
         x: spot.x,
         z: spot.z,
         sprite: mark.sprite,
-        width: mark.w,
+        width: spot.width,
         height: mark.h,
-        depth: Math.min(11, mark.w * 0.62),
+        depth: spot.depth,
         district: d.id,
         neon: mark.neon,
         label: d.name,
@@ -287,56 +347,81 @@ export function buildCity(): {
     );
   });
 
-  const stripSprite = (i: number) =>
-    i % 3 === 0
-      ? { sprite: "/reno/sprites/casino-tower.webp", w: 8.2, h: 16.4, neon: true }
-      : { sprite: "/reno/sprites/neon-casino.webp", w: 13.6, h: 7.8, neon: true };
+  const stripSprite = (i: number) => {
+    const k = Math.abs(i) % 7;
+    if (k === 0) return { sprite: "/reno/sprites/casino-tower.webp", w: 12, h: floors(14), neon: true };
+    if (k === 1) return { sprite: "/reno/sprites/casino-tower.webp", w: 14, h: floors(8), neon: true };
+    if (k === 2) return { sprite: "/reno/sprites/neon-casino.webp", w: 36, h: floors(2), neon: true };
+    if (k === 3) return { sprite: "/reno/sprites/neon-casino.webp", w: 24, h: floors(4), neon: true };
+    if (k === 4) return { sprite: "/reno/sprites/neon-casino.webp", w: 18, h: floors(3), neon: true };
+    if (k === 5) return { sprite: "/reno/sprites/apartment.webp", w: 16, h: floors(6), neon: true };
+    return { sprite: "/reno/sprites/neon-casino.webp", w: 28, h: floors(3), neon: true };
+  };
 
   const kindFor = (zone: ZoneKind, n: number) => {
+    const k = Math.abs(n) % 6;
     if (zone === "outskirts") {
-      const k = Math.abs(n) % 5;
-      if (k <= 1) return { sprite: "/reno/sprites/neon-casino.webp", w: 6.2, h: 5.4, neon: true };
-      if (k <= 3) return { sprite: "/reno/sprites/motel.webp", w: 7.4, h: 4.6 };
-      return { sprite: "/reno/sprites/shack.webp", w: 5.1, h: 3.5 };
+      if (k <= 1) return { sprite: "/reno/sprites/neon-casino.webp", w: k === 0 ? 22 : 14, h: floors(k === 0 ? 2 : 3), neon: true };
+      if (k <= 3) return { sprite: "/reno/sprites/motel.webp", w: k === 2 ? 28 : 16, h: floors(2) };
+      if (k === 4) return { sprite: "/reno/sprites/shop.webp", w: 12, h: 4.4 };
+      return { sprite: "/reno/sprites/shack.webp", w: 6.5, h: 3.1 };
     }
     if (zone === "strip") return stripSprite(n);
-    if (zone === "wild") return { sprite: "/reno/sprites/shack.webp", w: 6.2, h: 5.2 };
-    if (zone === "industrial") return { sprite: "/reno/sprites/warehouse.webp", w: 10, h: 8 };
-    if (zone === "motel") return { sprite: "/reno/sprites/motel.webp", w: 9, h: 6.6 };
+    if (zone === "wild") return k % 4 === 0 ? { sprite: "/reno/crypt.webp", w: 10, h: floors(2) } : { sprite: "/reno/sprites/shack.webp", w: 6 + (k % 3), h: 3.1 + (k % 3) * 0.35 };
+    if (zone === "industrial") {
+      if (k % 3 === 0) return { sprite: "/reno/sprites/warehouse.webp", w: 36, h: 11.4 };
+      if (k % 3 === 1) return { sprite: "/reno/rail.webp", w: 28, h: 9.6 };
+      return { sprite: "/reno/sprites/warehouse.webp", w: 20, h: 6.8 };
+    }
+    if (zone === "motel") return k % 2 === 0 ? { sprite: "/reno/sprites/motel.webp", w: 32, h: floors(2) } : { sprite: "/reno/sprites/motel.webp", w: 18, h: floors(3) };
     if (zone === "compound") {
-      return n % 2 === 0
-        ? { sprite: "/reno/sprites/apartment.webp", w: 8.4, h: 12 }
-        : { sprite: "/reno/sprites/warehouse.webp", w: 9.4, h: 7.6 };
+      return k % 2 === 0
+        ? { sprite: "/reno/sprites/apartment.webp", w: 20, h: floors(3 + (k % 3)) }
+        : { sprite: "/reno/sprites/warehouse.webp", w: 24, h: 7.2 };
     }
     if (zone === "alley") {
-      return n % 2 === 0
-        ? { sprite: "/reno/sprites/pawnshop.webp", w: 7, h: 7.2 }
-        : { sprite: "/reno/sprites/shop.webp", w: 6.6, h: 6.8 };
+      if (k % 3 === 0) return { sprite: "/reno/sprites/pawnshop.webp", w: 7.5, h: floors(2) };
+      if (k % 3 === 1) return { sprite: "/reno/sprites/shop.webp", w: 9, h: floors(1) };
+      return { sprite: "/reno/bar.webp", w: 11, h: floors(2) };
     }
-    return n % 2 === 0
-      ? { sprite: "/reno/sprites/tenement.webp", w: 7.6, h: 10 }
-      : { sprite: "/reno/sprites/apartment.webp", w: 8.2, h: 12.4 };
+    if (k === 0) return { sprite: "/reno/sprites/tenement.webp", w: 12, h: floors(6) };
+    if (k === 1) return { sprite: "/reno/sprites/apartment.webp", w: 18, h: floors(4) };
+    if (k === 2) return { sprite: "/reno/sprites/tenement.webp", w: 10, h: floors(8) };
+    if (k === 3) return { sprite: "/reno/sprites/apartment.webp", w: 22, h: floors(3) };
+    if (k === 4) return { sprite: "/reno/sprites/shop.webp", w: 14, h: floors(2) };
+    return { sprite: "/reno/sprites/tenement.webp", w: 15, h: floors(5) };
   };
 
   const formOf = (zone: ZoneKind, sprite: string, i: number): BuildingForm => {
+    const k = Math.abs(i) % 6;
+    if (zone === "wild") return sprite.includes("crypt") || k === 0 ? "church" : "shack";
     if (zone === "outskirts") {
-      if (sprite.includes("casino") || sprite.includes("neon")) return "casino";
-      if (sprite.includes("motel")) return "motel";
+      if (sprite.includes("casino") || sprite.includes("neon")) return k % 2 === 0 ? "marquee" : "casino";
+      if (sprite.includes("motel")) return k % 2 === 0 ? "hotel" : "motel";
+      if (sprite.includes("shop")) return k % 2 === 0 ? "garage" : "diner";
       return "shack";
     }
     if (sprite.includes("casino") || sprite.includes("neon")) {
-      return i % 3 === 0 ? "tower" : i % 3 === 1 ? "casino" : "step";
+      const forms: BuildingForm[] = ["tower", "casino", "marquee", "step", "slab", "wing"];
+      return forms[k]!;
     }
-    if (sprite.includes("motel")) return i % 2 === 0 ? "motel" : "wing";
-    if (sprite.includes("warehouse") || sprite.includes("rail")) return i % 2 === 0 ? "shed" : "box";
+    if (sprite.includes("motel")) {
+      const forms: BuildingForm[] = ["motel", "hotel", "court", "wing"];
+      return forms[k % 4]!;
+    }
+    if (sprite.includes("rail")) return k % 2 === 0 ? "depot" : "loft";
+    if (sprite.includes("warehouse")) {
+      const forms: BuildingForm[] = ["shed", "loft", "depot", "garage"];
+      return forms[k % 4]!;
+    }
     if (sprite.includes("shack")) return "shack";
-    if (sprite.includes("bar")) return i % 2 === 0 ? "wing" : "box";
-    if (sprite.includes("shop") || sprite.includes("pawn")) return i % 3 === 0 ? "wing" : i % 3 === 1 ? "step" : "box";
-    const k = Math.abs(i) % 4;
-    if (k === 0) return "step";
-    if (k === 1) return "tower";
-    if (k === 2) return "wing";
-    return "box";
+    if (sprite.includes("crypt")) return "church";
+    if (sprite.includes("ring")) return "arena";
+    if (sprite.includes("bar")) return k % 3 === 0 ? "marquee" : k % 3 === 1 ? "diner" : "wing";
+    if (sprite.includes("pawn")) return "pawn";
+    if (sprite.includes("shop")) return k % 3 === 0 ? "pawn" : k % 3 === 1 ? "diner" : "wing";
+    const homes: BuildingForm[] = ["walkup", "step", "court", "slab", "box", "tower"];
+    return homes[k]!;
   };
 
   let taggedCasino = false;
@@ -393,6 +478,16 @@ export function buildCity(): {
     const zone = zoneAt(x, z);
     const kind = kindFor(zone, n + Math.round(x + z));
     const fringe = zone === "outskirts";
+    const roll = rand();
+    let hScale = fringe ? 0.88 + rand() * 0.16 : 0.78 + rand() * 0.42;
+    if (zone === "strip" && roll > 0.74) hScale *= 1.55;
+    if (zone === "residential" && roll > 0.82) hScale *= 1.28;
+    if (zone === "alley") hScale *= 0.7 + rand() * 0.22;
+    if (zone === "industrial") hScale *= 0.92 + rand() * 0.4;
+    const rawH = kind.h * hScale;
+    const height =
+      zone === "strip" ? Math.min(rawH, floors(11)) : zone === "residential" || zone === "compound" ? Math.min(rawH, floors(8)) : rawH;
+    const widthMul = roll < 0.2 ? 0.58 : roll > 0.78 ? 0.96 : 0.78 + rand() * 0.14;
     let label: string | undefined;
     if (fringe && !taggedCasino && kind.sprite.includes("casino")) {
       label = "Two-Bit";
@@ -408,9 +503,9 @@ export function buildCity(): {
           x,
           z,
           sprite: kind.sprite,
-          width: frontage * (fringe ? 0.86 : 1),
-          height: kind.h * (fringe ? 0.92 + rand() * 0.16 : 0.78 + rand() * 0.42),
-          depth: thick * (0.9 + rand() * 0.16),
+          width: frontage * (fringe ? 0.86 : 1) * widthMul,
+          height,
+          depth: Math.min(thick, (kind.w ?? frontage) * 0.72) * (0.92 + rand() * 0.1),
           face,
           form: formOf(zone, kind.sprite, n + Math.round(z)),
           neon: "neon" in kind && Boolean(kind.neon),
@@ -443,9 +538,13 @@ export function buildCity(): {
         w: lotW,
         d: lotD,
       });
-      const thick = Math.min(7.6, Math.max(5.6, Math.min(lotW, lotD) * 0.28));
+      const zone = zoneAt((innerL + innerR) / 2, (innerS + innerN) / 2);
+      const thickCap = zone === "industrial" ? 22 : zone === "wild" ? 8 : zone === "strip" ? 16 : zone === "alley" ? 10 : 14;
+      const thickFloor = zone === "alley" || zone === "wild" ? 6 : 8;
+      const thick = Math.min(thickCap, Math.max(thickFloor, Math.min(lotW, lotD) * (zone === "industrial" ? 0.48 : 0.34)));
+      const lotUnit = zone === "alley" ? 11 : zone === "industrial" ? 24 : zone === "strip" ? 18 : 15;
       const rowX = (z: number, face: NonNullable<CityBuilding["face"]>) => {
-        const count = Math.max(1, Math.floor(lotW / 8.4));
+        const count = Math.max(1, Math.floor(lotW / lotUnit));
         const step = lotW / count;
         for (let i = 0; i < count; i++) {
           place(innerL + (i + 0.5) * step, z, Math.max(5, step - 0.85), face, thick);
@@ -459,7 +558,7 @@ export function buildCity(): {
         const z0 = innerS + thick + 0.6;
         const z1 = innerN - thick - 0.6;
         const span = z1 - z0;
-        const count = Math.max(1, Math.floor(span / 8.4));
+        const count = Math.max(1, Math.floor(span / lotUnit));
         const step = span / count;
         for (let i = 0; i < count; i++) {
           const z = z0 + (i + 0.5) * step;
@@ -490,12 +589,12 @@ export function buildCity(): {
   for (const road of majors) {
     const horizontal = road.w >= road.d;
     const half = horizontal ? road.d / 2 : road.w / 2;
-    const thick = 6.4;
-    const along0 = (horizontal ? road.x - road.w / 2 : road.z - road.d / 2) + 4;
-    const along1 = (horizontal ? road.x + road.w / 2 : road.z + road.d / 2) - 4;
+    const thick = 12;
+    const along0 = (horizontal ? road.x - road.w / 2 : road.z - road.d / 2) + 6;
+    const along1 = (horizontal ? road.x + road.w / 2 : road.z + road.d / 2) - 6;
     const span = along1 - along0;
-    if (span < 16) continue;
-    const count = Math.max(1, Math.floor(span / 9));
+    if (span < 20) continue;
+    const count = Math.max(1, Math.floor(span / 18));
     const step = span / count;
     for (const sign of [1, -1] as const) {
       const face = horizontal ? (sign > 0 ? "-z" : "+z") : sign > 0 ? "-x" : "+x";
@@ -503,7 +602,7 @@ export function buildCity(): {
         const t = along0 + (i + 0.5) * step;
         const x = horizontal ? t : road.x + sign * (half + WALK + thick / 2);
         const z = horizontal ? road.z + sign * (half + WALK + thick / 2) : t;
-        place(x, z, Math.max(5.2, step - 0.9), face, thick);
+        place(x, z, Math.max(8, step - 1.2), face, thick);
       }
     }
   }
@@ -537,33 +636,36 @@ export function buildCity(): {
   for (const road of roads) {
     const alongX = road.w >= road.d;
     const length = alongX ? road.w : road.d;
-    const count = Math.max(3, Math.round(length / 22));
+    const gap = length > 400 ? PARK_GAP * 4 : PARK_GAP;
+    const count = Math.max(2, Math.round(length / gap));
     for (let i = 0; i < count; i++) {
       const t = (i + 0.32) / count - 0.5;
       const alongHalf = alongX ? road.d / 2 : road.w / 2;
-      const curb = Math.max(1.4, alongHalf - 1.15);
-      const walk = alongHalf + 1.15;
-      const side = rand() > 0.5 ? 1 : -1;
-      const x = alongX ? road.x + t * road.w * 0.9 : road.x + side * curb;
-      const z = alongX ? road.z + side * curb : road.z + t * road.d * 0.9;
-      if (nearLandmark(x, z, 9)) continue;
+      const curb = Math.max(CAR_W, alongHalf - 0.35 - CAR_W / 2);
+      const walk = alongHalf + 1.35;
+      const side = i % 2 === 0 ? 1 : -1;
+      const x = alongX ? road.x + t * road.w * 0.92 : road.x + side * curb;
+      const z = alongX ? road.z + side * curb : road.z + t * road.d * 0.92;
+      if (nearLandmark(x, z, 11)) continue;
       cars.push({
         id: `car-${c}`,
         x,
         z,
         sprite: CARS[Math.floor(rand() * CARS.length)]!,
-        width: 3.6 + rand() * 0.7,
-        height: 1.8 + rand() * 0.35,
-        yaw: alongX ? (side > 0 ? 0 : Math.PI) : Math.PI / 2,
+        width: 4.72,
+        height: 1.46,
+        yaw: alongX ? Math.PI / 2 : 0,
       });
-      lamps.push({
-        id: `lamp-${c}`,
-        x: alongX ? road.x + t * road.w : road.x + side * walk,
-        z: alongX ? road.z + side * walk : road.z + t * road.d,
-        sprite: "/reno/sprites/lamp.webp",
-        width: 1.4,
-        height: 5.8,
-      });
+      if (length < 400 || i % 4 === 0) {
+        lamps.push({
+          id: `lamp-${c}`,
+          x: alongX ? road.x + t * road.w : road.x + side * walk,
+          z: alongX ? road.z + side * walk : road.z + t * road.d,
+          sprite: "/reno/sprites/lamp.webp",
+          width: 0.2,
+          height: 6.2,
+        });
+      }
       c += 1;
     }
   }
@@ -573,7 +675,7 @@ export function buildCity(): {
   for (const road of roads) {
     const alongX = road.w >= road.d;
     const length = alongX ? road.w : road.d;
-    const count = Math.max(2, Math.round(length / 16));
+    const count = Math.max(2, Math.round(length / (length > 400 ? 36 : 12)));
     for (let i = 0; i < count; i++) {
       const t = (i + 0.42) / count - 0.5;
       const alongHalf = alongX ? road.d / 2 : road.w / 2;
@@ -586,8 +688,8 @@ export function buildCity(): {
       let nightOnly = false;
       if (zone === "strip") {
         sprite =
-          i % 5 === 0
-            ? "/reno/tokens/cop.webp"
+          i % 7 === 0
+            ? "/reno/tokens/gangster.webp"
             : i % 2 === 0
               ? "/reno/tokens/ped-woman.webp"
               : "/reno/tokens/ped-man.webp";
@@ -652,12 +754,12 @@ export function buildCity(): {
           x: s.x,
           z: s.z,
           sprite: s.use === "bar" ? "/reno/bar.webp" : "/reno/sprites/neon-casino.webp",
-          width: 16,
-          height: 8.4,
-          depth: 11,
+          width: s.use === "bar" ? 18 : 28,
+          height: floors(s.use === "bar" ? 2 : 3),
+          depth: s.use === "bar" ? 12 : 16,
           neon: true,
           label: s.name,
-          form: "casino",
+          form: s.use === "bar" ? "diner" : "marquee",
           face: s.z > 0 ? "-z" : "+z",
         },
         buildings.length,
@@ -692,11 +794,11 @@ export function buildCity(): {
           x: s.x,
           z: s.z,
           sprite: s.use === "gas" ? "/reno/sprites/shop.webp" : "/reno/sprites/motel.webp",
-          width: s.use === "gas" ? 14 : 18,
-          height: s.use === "gas" ? 4.8 : 6.2,
-          depth: s.use === "gas" ? 9 : 8,
+          width: s.use === "gas" ? 16 : 28,
+          height: s.use === "gas" ? 4.6 : floors(2),
+          depth: s.use === "gas" ? 12 : 12,
           label: s.name,
-          form: s.use === "gas" ? "shed" : "motel",
+          form: s.use === "gas" ? "garage" : "motel",
         },
         buildings.length,
         {
@@ -773,12 +875,75 @@ export function nearestDistrict(x: number, z: number): { id: DistrictId; dist: n
   return { id: best, dist: bestD };
 }
 
-export function hourSky(hour: number): { sky: string; fog: string; sun: number; neon: number } {
+export function hourSky(hour: number, weather: Weather = "clear"): {
+  sky: string;
+  fog: string;
+  sun: number;
+  neon: number;
+  fogNear: number;
+  fogFar: number;
+} {
   const h = ((hour % 24) + 24) % 24;
-  if (h >= 21 || h < 5) return { sky: "#010006", fog: "#020108", sun: 0.02, neon: 1 };
-  if (h < 7) return { sky: "#120c14", fog: "#100c12", sun: 0.12, neon: 0.9 };
-  if (h < 9) return { sky: "#7d8ea0", fog: "#8a97a4", sun: 0.7, neon: 0.15 };
-  if (h >= 18 && h < 20) return { sky: "#c47a4a", fog: "#a86a48", sun: 0.45, neon: 0.55 };
-  if (h >= 20) return { sky: "#08060e", fog: "#06040c", sun: 0.05, neon: 1 };
-  return { sky: "#8aa3b0", fog: "#93a4ab", sun: 1, neon: 0 };
+  const night = h >= 21 || h < 5;
+  let sky = "#8aa3b0";
+  let fog = "#93a4ab";
+  let sun = 1;
+  let neon = 0;
+  if (h >= 21 || h < 5) {
+    sky = "#010006";
+    fog = "#020108";
+    sun = 0.02;
+    neon = 1;
+  } else if (h < 7) {
+    sky = "#120c14";
+    fog = "#100c12";
+    sun = 0.12;
+    neon = 0.9;
+  } else if (h < 9) {
+    sky = "#7d8ea0";
+    fog = "#8a97a4";
+    sun = 0.7;
+    neon = 0.15;
+  } else if (h >= 18 && h < 20) {
+    sky = "#c47a4a";
+    fog = "#a86a48";
+    sun = 0.45;
+    neon = 0.55;
+  } else if (h >= 20) {
+    sky = "#08060e";
+    fog = "#06040c";
+    sun = 0.05;
+    neon = 1;
+  }
+  let fogNear = night ? 36 : 55;
+  let fogFar = night ? 220 : 520;
+  if (weather === "dust") {
+    fog = "#8d7356";
+    sky = night ? "#1a120c" : "#a08868";
+    sun *= 0.62;
+    fogNear = 14;
+    fogFar = 80;
+  } else if (weather === "wind") {
+    fogNear = 22;
+    fogFar = 140;
+  } else if (weather === "rain") {
+    sky = night ? "#07080c" : "#4a5560";
+    fog = "#3c4650";
+    sun = Math.min(sun, 0.28);
+    neon = Math.max(neon, 0.45);
+    fogNear = 10;
+    fogFar = 64;
+  } else if (weather === "storm") {
+    sky = "#12141a";
+    fog = "#0c0e14";
+    sun = 0.06;
+    neon = 1;
+    fogNear = 6;
+    fogFar = 36;
+  }
+  return { sky, fog, sun, neon, fogNear, fogFar };
+}
+
+export function skyNow(day: number, hour: number) {
+  return hourSky(hour, weatherAt(day, hour));
 }

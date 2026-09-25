@@ -584,6 +584,7 @@ export function angelaHook(life: RenoLife): string {
 export function gangRankName(life: RenoLife): string {
   if (!life.gangId) return "Independent";
   const gang = GANG_BY_ID[life.gangId];
+  if ((life.gangRank ?? 0) <= 0) return `${gang.name} · On the books`;
   const idx = Math.max(0, Math.min(gang.ranks.length - 1, life.gangRank - 1));
   return `${gang.name} · ${gang.ranks[idx] ?? "Associate"}`;
 }

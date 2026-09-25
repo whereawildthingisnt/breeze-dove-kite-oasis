@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { KEY_LOCATIONS, ZONE_HINT, ZONE_LABEL } from "@/lib/reno/zones";
-import { zoneAt } from "@/lib/reno/city";
-import type { DistrictId, RenoAction, RenoLife, StashId } from "@/lib/reno/types";
+import { RenoBook } from "@/components/reno-book";
+import type { RenoAction, RenoLife, StashId } from "@/lib/reno/types";
 import { angelaPresent, gangRankName } from "@/lib/reno/angela";
 import { chemQty, housingHere } from "@/lib/reno/sim";
 import {
@@ -12,8 +11,8 @@ import {
   STASH_IDS,
   STASH_META,
   boxingPurse,
-  isNight,
 } from "@/lib/reno/world";
+import { counterWhere } from "@/lib/reno/work";
 import { countItem } from "@/lib/special/loadout";
 import type { Character } from "@/lib/special/types";
 
@@ -36,42 +35,10 @@ export function RenoDesk({
   const stimpaks = countItem(character.loadout, "stimpak");
   const stashN = chemQty(life);
   const turfGang = GANGS.find((g) => g.turf === life.district);
-  const zone = zoneAt(life.posX, life.posZ);
-  const night = isNight(life);
 
   return (
     <div className="space-y-4">
-      <section className="rounded-xl bg-surface p-4 shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">
-        <p className="font-mono text-[11px] tracking-[0.22em] text-subtle uppercase">Key locations</p>
-        <h3 className="font-display mt-1 text-xl font-semibold tracking-tight">Fast travel</h3>
-        <p className="mt-1 text-sm text-muted">
-          Shark Club, Desert Rose, the Ring. East Second runs out to Catclaw: smaller motels and two-bit casinos. West of Salvatore the lots get thin.
-        </p>
-        <p className="mt-2 font-mono text-[10px] tracking-wide text-subtle uppercase">
-          You: {ZONE_LABEL[zone]} · {ZONE_HINT[zone]} · {night ? "night" : "day"}
-        </p>
-        <p className="mt-2 text-sm text-muted">
-          NCR, the Hub, and the caravans treat the Strip like a cheap weekend. Guides, floor staff, bike taxis, and the night desk live on that spend, because a day wage will not rent the week.
-          {life.pulse ? ` Outside caps still walking around: ${life.pulse.visitorSpend}.` : ""}
-        </p>
-        <div className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
-          {KEY_LOCATIONS.map((loc) => (
-            <Button
-              key={loc.id}
-              size="sm"
-              variant={life.district === loc.id ? "secondary" : "ghost"}
-              className="h-auto min-h-11 justify-start whitespace-normal py-2 text-left"
-              disabled={busy || life.district === loc.id}
-              onClick={() => onAction({ type: "travel", district: loc.id as DistrictId })}
-            >
-              <span>
-                <span className="block font-medium">{loc.name}</span>
-                <span className="block font-mono text-[10px] tracking-wide text-subtle uppercase">{loc.blurb}</span>
-              </span>
-            </Button>
-          ))}
-        </div>
-      </section>
+      <RenoBook life={life} onAction={onAction} busy={busy} />
 
       <section className="rounded-xl bg-surface p-4 shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">
         <p className="font-mono text-[11px] tracking-[0.22em] text-subtle uppercase">This block</p>
@@ -111,7 +78,7 @@ export function RenoDesk({
             Shake down
           </Button>
           <Button size="sm" variant="outline" className="min-h-11" disabled={busy} onClick={() => onAction({ type: "street", act: "tip" })}>
-            Tip a cop
+            Tip the code
           </Button>
           <Button size="sm" variant="secondary" className="min-h-11" disabled={busy} onClick={() => onAction({ type: "street", act: "door" })}>
             Work a door
@@ -224,6 +191,67 @@ export function RenoDesk({
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">
+        <p className="font-mono text-[11px] tracking-[0.22em] text-subtle uppercase">Clock</p>
+        <h3 className="font-display mt-1 text-xl font-semibold">
+          {life.post ? `${life.post.title} · ${life.post.employer}` : "Not on a clock"}
+        </h3>
+        <p className="mt-1 text-sm text-muted">
+          Clock in and the city uses you. Skills decide if you are useful. Rank waits on merit, not on a calendar. When the shift or the call ends, your hands come back.
+          {life.post ? ` Merit ${life.post.merit}. Calls answered ${life.post.calls}.` : ""}
+          {life.vassal
+            ? ` ${GANG_BY_ID[life.vassal.gang].name} take ${life.vassal.cut}% and treat the till like theirs.`
+            : ""}
+        </p>
+        {life.post?.pending ? (
+          <p className="mt-2 text-sm text-fg">
+            Word came. {life.post.pending.where}. {life.post.pending.blurb}
+          </p>
+        ) : null}
+        {life.vassalOffer ? (
+          <p className="mt-2 text-sm text-fg">
+            {GANG_BY_ID[life.vassalOffer].name} offer a chair that is not a membership. They take a cut. They lend muscle. Your business becomes a business they recognize.
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {counterWhere(life.district) && !life.gangId ? (
+            <Button size="sm" disabled={busy} onClick={() => onAction({ type: "clockIn", post: "counter" })}>
+              Clock the counter
+            </Button>
+          ) : null}
+          {!life.gangId && turfGang ? (
+            <Button size="sm" disabled={busy} onClick={() => onAction({ type: "clockIn", post: "family" })}>
+              Clock onto the {turfGang.name}
+            </Button>
+          ) : null}
+          {!life.gangId && life.post?.kind !== "family" ? (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => onAction({ type: "clockIn", post: "raid" })}>
+              Hunt a cook
+            </Button>
+          ) : null}
+          {life.post?.pending ? (
+            <>
+              <Button size="sm" disabled={busy} onClick={() => onAction({ type: "answerCall" })}>
+                Answer the call
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction({ type: "ignoreCall" })}>
+                Ignore it
+              </Button>
+            </>
+          ) : null}
+          {life.vassalOffer ? (
+            <>
+              <Button size="sm" disabled={busy} onClick={() => onAction({ type: "vassal", take: true })}>
+                Take the paper
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction({ type: "vassal", take: false })}>
+                Leave it
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="rounded-xl bg-surface p-4 shadow-[0_0_0_1px_rgba(236,234,227,0.08)]">
         <p className="font-mono text-[11px] tracking-[0.22em] text-subtle uppercase">Families</p>
         <h3 className="font-display mt-1 text-xl font-semibold">
           {life.gangId ? gangRankName(life) : "Independent"}
@@ -245,7 +273,7 @@ export function RenoDesk({
           {life.gangId ? (
             <>
               <Button size="sm" onClick={() => onAction({ type: "gangJob" })} disabled={busy}>
-                Family work
+                {life.post?.pending ? "Go where they sent you" : "Wait for word"}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => onAction({ type: "quitGang" })} disabled={busy}>
                 Walk away
@@ -257,7 +285,7 @@ export function RenoDesk({
               onClick={() => onAction({ type: "joinGang", gang: turfGang.id })}
               disabled={busy}
             >
-              Ask the {turfGang.name}
+              Ask, if you want the speech check
             </Button>
           ) : (
             <p className="text-xs text-subtle">Gang turf: Golden Globes, Wright compound, Salvatore's, Bishop offices.</p>

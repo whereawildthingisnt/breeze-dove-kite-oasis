@@ -12,17 +12,19 @@ export const ZONE_LABEL: Record<ZoneKind, string> = {
 };
 
 export const ZONE_HINT: Record<ZoneKind, string> = {
-  strip: "Watched. Cops. Safer.",
-  alley: "Alleys and side streets. Knives.",
+  strip: "Casino mile. Beatings, not funerals. Tourist money.",
+  alley: "Alleys. This is where families actually move.",
   motel: "Hourly beds. The lot after dark.",
   residential: "Walk-ups, coughs, locked opinions.",
   industrial: "Yards. Raiders after dusk.",
   compound: "Family turf. Knock first.",
-  wild: "The city ends. Things start.",
-  outskirts: "Motels, shacks, two-bit casinos.",
+  wild: "Deep desert. Hunger is real out here.",
+  outskirts: "Unpowered edge. Kitchens stop. Thirst starts.",
 };
 
 export function zoneAt(x: number, z: number): ZoneKind {
+  // Virgin Street is a mile of casinos. Check it before the desert radius eats the ends.
+  if (Math.abs(z) < 18 && x > -820 && x < 860) return "strip";
   if (x * x + (z - 40) * (z - 40) > 340 * 340) return "wild";
   if (x > 148 && z > -28 && z < 120) return "outskirts";
   if (x < -108 && z > -28 && z < 78) return "outskirts";
@@ -30,9 +32,8 @@ export function zoneAt(x: number, z: number): ZoneKind {
   if (x < -58 && z > 82) return "compound";
   if (x > 88 && z > 68) return "industrial";
   if (Math.hypot(x - 18, z - 58) < 30) return "motel";
-  if (Math.abs(z) < 16 && x > -42 && x < 122) return "strip";
   if (z < -16 && z > -58 && x > 28 && x < 72) return "compound";
-  if (x < -40 && z > -12 && z < 42) return "compound";
+  if (x < -40 && z > 18 && z < 42) return "compound";
   if (Math.abs(z) < 44 && x > -88 && x < 148) return "alley";
   return "residential";
 }
@@ -84,16 +85,16 @@ export function foePool(zone: ZoneKind, gang?: GangId, night?: boolean): string[
   if (zone === "outskirts") return night ? ["pimp", "john", "dealer", "junkie", "drunk"] : ["tourist", "drunk", "dealer", "punk", "john"];
   if (zone === "industrial") return ["raider", "merc", "tough", "punk"];
   if (zone === "motel") return night ? ["pimp", "john", "dealer", "drunk"] : ["drunk", "john", "dealer"];
-  if (zone === "strip") return night ? ["drunk", "cheat", "bouncer", "cop"] : ["tourist", "drunk", "cop", "cheat"];
+  if (zone === "strip") return night ? ["drunk", "cheat", "bouncer", "tough"] : ["tourist", "drunk", "cheat", "bouncer"];
   if (zone === "compound") {
     if (gang === "mordinos") return ["mordino", "dealer", "pimp"];
     if (gang === "wrights") return ["wright", "drunk", "tough"];
     if (gang === "salvatores") return ["salvatore", "bouncer", "merc"];
-    if (gang === "bishops") return ["bishop", "bouncer", "cop"];
+    if (gang === "bishops") return ["bishop", "bouncer", "tough"];
     return ["tough", "bouncer"];
   }
   if (zone === "alley") return ["junkie", "tough", "dealer", "punk", "creep", "pimp"];
-  return ["drunk", "punk", "cop"];
+  return ["drunk", "punk", "tough"];
 }
 
 const NAMES: Record<BuildingUse, string[]> = {
@@ -134,7 +135,7 @@ const RUMOR: Record<BuildingUse, string[]> = {
 
 const PEOPLE: Record<BuildingUse, string[]> = {
   casino: ["Dealers, tourists, Bishop eyes.", "Floor men and a bouncer who used to box."],
-  motel: ["Working girls on the lot after dusk. Johns in hats. A pimp on the stairs.", "Day clerk, night girls, and a cop who does not look."],
+  motel: ["Working girls on the lot after dusk. Johns in hats. A pimp on the stairs.", "Day clerk, night girls, and a floor man who does not look."],
   tenement: ["Families and a junkie on the first landing."],
   shop: ["A clerk and whoever is buying ammo today."],
   bar: ["Made men. Tourists who do not know it yet."],
@@ -144,7 +145,7 @@ const PEOPLE: Record<BuildingUse, string[]> = {
   pawn: ["The owner and a shotgun under the counter."],
   ring: ["Palookas, touts, a doctor who bills the loser."],
   crypt: ["Ghouls. Wright mourners if you are unlucky."],
-  rail: ["Hobos, runners, a cop who walks the other way."],
+  rail: ["Hobos, runners, a family man who walks the other way."],
   office: ["Bishop secretaries and men in good coats."],
   club: ["A band, floor staff, and people in from the highway for the show."],
   gas: ["A clerk, a dog, and plates that are not from here."],
@@ -227,7 +228,7 @@ const AMBIENT: Record<ZoneKind, { day: string[]; night: string[] }> = {
     night: [
       "Hourly keys. The clerk writes a name they will not remember.",
       "Calico's lot. Laughter, then a door, then quiet.",
-      "A cop walks past the motel and looks at the sky instead.",
+      "A made man walks past the motel and looks at the sky instead.",
     ],
   },
   residential: {

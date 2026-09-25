@@ -1,4 +1,4 @@
-import { A as invariant, C as createInlineCssStyleAsset, F as decodePath, I as rootRouteId, M as dehydrateSsrMatchId, O as _getRenderedMatches, S as createInlineCssPlaceholderAsset, T as getStylesheetHref, b as GLOBAL_TSR, j as createSieveCache, x as TSR_SCRIPT_BARRIER_ID } from "./react-router+[...].mjs";
+import { A as invariant, C as createInlineCssStyleAsset, I as rootRouteId, M as decodePath, N as dehydrateSsrMatchId, O as _getRenderedMatches, S as createInlineCssPlaceholderAsset, T as getStylesheetHref, b as GLOBAL_TSR, j as createLRUCache, x as TSR_SCRIPT_BARRIER_ID } from "./react-router+[...].mjs";
 //#region node_modules/seroval/dist/index.js
 var SYM_ASYNC_ITERATOR = Symbol.asyncIterator;
 var SYM_HAS_INSTANCE = Symbol.hasInstance;
@@ -1357,15 +1357,13 @@ function deserializePromiseFulfill(ctx, depth, node) {
 function deserializeIteratorFactoryInstance(ctx, depth, node) {
 	deserialize$1(ctx, depth, node.a[0]);
 	const source = deserialize$1(ctx, depth, node.a[1]);
-	validateNodeType(ctx, node, node.a[1].i, 35);
-	if (!source) throw new SerovalMalformedNodeError(node.a[1]);
+	if (!source || typeof source !== "object" || !isSequence(source)) throw new SerovalMalformedNodeError(node.a[1]);
 	return sequenceToIterator(source);
 }
 function deserializeAsyncIteratorFactoryInstance(ctx, depth, node) {
 	deserialize$1(ctx, depth, node.a[0]);
 	const source = deserialize$1(ctx, depth, node.a[1]);
-	validateNodeType(ctx, node, node.a[1].i, 31);
-	if (!source) throw new SerovalMalformedNodeError(node.a[1]);
+	if (!source || typeof source !== "object" || !isStream(source)) throw new SerovalMalformedNodeError(node.a[1]);
 	return streamToAsyncIterable(source);
 }
 function deserializeStreamConstructor(ctx, depth, node) {
@@ -1411,7 +1409,6 @@ function deserializeAsyncIteratorFactory(ctx, depth, node) {
 }
 function deserializeSequence(ctx, depth, node) {
 	const result = assignIndexedValue$1(ctx, node.i, createSequence([], node.s, node.l));
-	assignNodeType(ctx, node.i, 35);
 	for (let i = 0, len = node.a.length; i < len; i++) result.v[i] = deserialize$1(ctx, depth, node.a[i]);
 	return result;
 }
@@ -2942,7 +2939,7 @@ var ShallowErrorPlugin = /* @__PURE__ */ createPlugin({
 	}
 });
 //#endregion
-//#region node_modules/seroval-plugins/dist/web-C5aekFCA.js
+//#region node_modules/seroval-plugins/dist/web-43VA2W_p.js
 var READABLE_STREAM_FACTORY = {};
 var READABLE_STREAM_FACTORY_CONSTRUCTOR = (stream) => new ReadableStream({ start(controller) {
 	stream.on({
@@ -3047,9 +3044,7 @@ var defaultSerovalPlugins = [
 			return "(" + ctx.serialize(node.factory) + ")(" + ctx.serialize(node.stream) + ")";
 		},
 		deserialize(node, ctx) {
-			const stream = ctx.deserialize(node.stream);
-			if (!stream || typeof stream !== "object" || !isStream(stream)) throw new Error("Expected a stream source.");
-			return READABLE_STREAM_FACTORY_CONSTRUCTOR(stream);
+			return READABLE_STREAM_FACTORY_CONSTRUCTOR(ctx.deserialize(node.stream));
 		}
 	})
 ];
@@ -3156,7 +3151,7 @@ var manifestCaches = /* @__PURE__ */ new WeakMap();
 function getManifestCache(manifest) {
 	const cache = manifestCaches.get(manifest);
 	if (cache) return cache;
-	const newCache = createSieveCache(MANIFEST_CACHE_SIZE);
+	const newCache = createLRUCache(MANIFEST_CACHE_SIZE);
 	manifestCaches.set(manifest, newCache);
 	return newCache;
 }

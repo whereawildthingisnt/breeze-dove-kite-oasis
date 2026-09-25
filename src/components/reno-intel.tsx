@@ -49,9 +49,7 @@ export function RenoIntel({
         </h3>
         <p className="mt-2 text-sm text-muted">
           The sidewalk is not a spawn table. Citizens keep hours. Independents work a corner and remember a slight.
-          Family blades walk their turf, and when tension is high they walk toward a rival. Police follow a warrant,
-          which trails heat by hours, not a gunshot. Fear makes civilians take the long way and families refuse to
-          look weak. Regard is fame after it has had time to be believed.
+          Family blades walk their turf, and when the city is hot they meet off Virgin Street. There is no police. A code trails heat. Fear makes civilians take the long way. Regard is fame after it has had time to be believed.
         </p>
         <dl className="mt-3 grid grid-cols-2 gap-2 font-mono text-[11px] text-muted">
           <div className="rounded-lg bg-raised px-2 py-2">
@@ -59,8 +57,8 @@ export function RenoIntel({
             <dd>Fresh noise. Fades slowly. Does not send a fight.</dd>
           </div>
           <div className="rounded-lg bg-raised px-2 py-2">
-            <dt className="text-subtle uppercase">Warrant {Math.round(life.warrant ?? 0)}</dt>
-            <dd>Cops start walking around 16. They square up around 32.</dd>
+            <dt className="text-subtle uppercase">Code {Math.round(life.warrant ?? 0)}</dt>
+            <dd>Families start looking around 18, off the strip. They square up in an alley, not on the felt.</dd>
           </div>
           <div className="rounded-lg bg-raised px-2 py-2">
             <dt className="text-subtle uppercase">Fame {life.fame} / Regard {Math.round(life.regard ?? 0)}</dt>
@@ -253,8 +251,7 @@ export function RenoIntel({
                   className="min-h-11 shrink-0"
                   onClick={() => onAction({ type: "seekDealer", dealer: d.id })}
                 >
-                  <Search />
-                  Find
+                  Walk
                 </Button>
               </div>
               {soughtD?.id === d.id && life.district === d.district ? (
@@ -305,7 +302,7 @@ export function RenoIntel({
                     onClick={() => onAction({ type: "seekMark", mark: m.id })}
                   >
                     <Search />
-                    Find
+                    Walk
                   </Button>
                 </div>
                 {open ? (

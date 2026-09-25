@@ -15,13 +15,16 @@ import {
 } from "@/lib/reno/city";
 import { createCityAmbience } from "@/lib/reno/ambience";
 import { cutoutTexture } from "@/lib/reno/cutout";
+import { cellAt, HEX_METERS, worldToHex } from "@/lib/reno/hex";
+import { blockedAt } from "@/lib/reno/nav";
 import { HUMAN_M, HUMAN_W } from "@/lib/reno/scale";
 import type { DistrictId, RenoLife } from "@/lib/reno/types";
 import { DISTRICT_BY_ID, isNight } from "@/lib/reno/world";
+import { weatherAt } from "@/lib/reno/weather";
 import { dangerOf, ZONE_HINT, ZONE_LABEL } from "@/lib/reno/zones";
 
-const SPEED = 16;
-const TURN = 2.4;
+const SPEED = 5.2;
+const TURN = 2.2;
 
 type Keys = Set<string>;
 
@@ -105,6 +108,25 @@ function PlayerPawn({ spriteRef }: { spriteRef: React.RefObject<THREE.Sprite | n
 const camDesired = new THREE.Vector3();
 const lookAt = new THREE.Vector3();
 
+function RouteLine({ id, points }: { id: string; points: Array<{ x: number; z: number }> }) {
+  const line = useMemo(() => {
+    const geo = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, 0.35, p.z)));
+    const mat = new THREE.LineBasicMaterial({ color: "#e8c36a", transparent: true, opacity: 0.9 });
+    const obj = new THREE.Line(geo, mat);
+    obj.frustumCulled = false;
+    return obj;
+  }, [id]);
+  useEffect(() => {
+    return () => {
+      line.geometry.dispose();
+      const mat = line.material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat.dispose();
+    };
+  }, [line]);
+  return <primitive object={line} />;
+}
+
 function Rig({
   life,
   disabled,
@@ -115,7 +137,11 @@ function Rig({
   onTalk,
   onNear,
   onCombatHex,
-  walkTo,
+  onFieldTick,
+  onRise,
+  onNavArrive,
+  onNavCancel,
+  onGround,
   inspecting,
   injected,
 }: {
@@ -128,7 +154,11 @@ function Rig({
   onTalk: (actor: StreetActor) => void;
   onNear: (line: string) => void;
   onCombatHex: (q: number, r: number) => void;
-  walkTo: { x: number; z: number } | null;
+  onFieldTick: () => void;
+  onRise: () => void;
+  onNavArrive: () => void;
+  onNavCancel: () => void;
+  onGround: (x: number, z: number) => void;
   inspecting: string | null;
   injected: React.MutableRefObject<Set<string> | null>;
 }) {
@@ -138,28 +168,51 @@ function Rig({
   const pausedRef = useRef(false);
   const hiddenRef = useRef<Set<string>>(new Set());
   lifeRef.current = life;
-  pausedRef.current = Boolean(disabled);
+  pausedRef.current = Boolean(disabled || life.combat?.field);
   hiddenRef.current = new Set(
     life.combat?.onMap ? life.combat.combatants.filter((c) => !c.player).map((c) => c.id) : [],
   );
-  const yaw = useRef(0);
+  const yaw = useRef(Math.PI);
   const speed = useRef(0);
-  const target = useRef<THREE.Vector3 | null>(null);
   const walked = useRef(0);
   const lastDistrict = useRef<DistrictId>(life.district);
+  const lastHex = useRef<{ q: number; r: number } | null>(null);
+  const rose = useRef(false);
+  const tickAt = useRef(0);
+  const route = useRef<{ id: string; i: number } | null>(null);
+  const cancelSent = useRef(false);
+  const doneSent = useRef(false);
+  const navId = life.nav?.id ?? "";
   const keysOf = useHeldKeys(injected);
   const { camera } = useThree();
   const sky = hourSky(life.hour);
   const night = isNight(life);
+  const weather = weatherAt(life.day, life.hour);
+  const arriveNav = useRef(onNavArrive);
+  const cancelNav = useRef(onNavCancel);
+  const fieldTick = useRef(onFieldTick);
+  const rise = useRef(onRise);
+  arriveNav.current = onNavArrive;
+  cancelNav.current = onNavCancel;
+  fieldTick.current = onFieldTick;
+  rise.current = onRise;
 
   useEffect(() => {
     player.current.set(life.posX, 0, life.posZ);
   }, [life.posX, life.posZ, life.district]);
 
   useEffect(() => {
-    if (!walkTo) return;
-    target.current = new THREE.Vector3(walkTo.x, 0, walkTo.z);
-  }, [walkTo]);
+    cancelSent.current = false;
+    doneSent.current = false;
+    if (!navId || !life.nav?.waypoints.length) {
+      route.current = null;
+      return;
+    }
+    let i = 0;
+    const pts = life.nav.waypoints;
+    while (i < pts.length - 1 && Math.hypot(pts[i]!.x - life.posX, pts[i]!.z - life.posZ) < 2.2) i += 1;
+    route.current = { id: navId, i };
+  }, [navId]);
 
   useEffect(() => {
     const probe = {
@@ -177,20 +230,33 @@ function Rig({
 
   useFrame((_, raw) => {
     const dt = Math.min(raw, 0.1);
-    const fight = life.combat?.onMap && life.combat.originX != null && life.combat.originZ != null ? life.combat : null;
-    if (fight) {
+    const live = lifeRef.current;
+    const overhead =
+      live.combat?.onMap && !live.combat.field && live.combat.originX != null && live.combat.originZ != null
+        ? live.combat
+        : null;
+    const field =
+      live.combat?.field && live.combat.map && live.combat.originX != null && live.combat.originZ != null
+        ? live.combat
+        : null;
+    if (overhead) {
       speed.current = 0;
-      const span = ((fight.map?.radius ?? 4) + 1.6) * (fight.hexScale || 3.35);
-      camDesired.set(fight.originX!, Math.max(18, span * 0.9), fight.originZ! + span * 0.62);
+      const span = ((overhead.map?.radius ?? 4) + 1.6) * (overhead.hexScale || HEX_METERS);
+      camDesired.set(overhead.originX!, Math.max(18, span * 0.9), overhead.originZ! + span * 0.62);
       camera.position.lerp(camDesired, 1 - Math.exp(-2.6 * dt));
-      lookAt.set(fight.originX!, 0.2, fight.originZ!);
+      lookAt.set(overhead.originX!, 0.2, overhead.originZ!);
       camera.lookAt(lookAt);
       if (pawn.current) pawn.current.visible = false;
       return;
     }
-    if (pawn.current) pawn.current.visible = true;
-    if (disabled) {
+    if (disabled && !field) {
       speed.current = 0;
+      if (pawn.current) {
+        const flat = Boolean(live.flat);
+        pawn.current.visible = !flat;
+        pawn.current.position.set(player.current.x, flat ? 0.22 : HUMAN_M / 2, player.current.z);
+        pawn.current.scale.set(flat ? 1.7 : HUMAN_W, flat ? 0.42 : HUMAN_M, 1);
+      }
       return;
     }
     const keys = keysOf();
@@ -199,58 +265,118 @@ function Rig({
     if (keys.has("KeyD") || keys.has("ArrowRight")) steer -= 1;
     const forwardHeld = keys.has("KeyW") || keys.has("ArrowUp");
     const backHeld = keys.has("KeyS") || keys.has("ArrowDown");
-
-    if (steer || forwardHeld || backHeld) target.current = null;
+    const manual = Boolean(steer || forwardHeld || backHeld);
+    const leg = route.current;
+    if (manual && leg && !field) {
+      route.current = null;
+      if (!cancelSent.current) {
+        cancelSent.current = true;
+        cancelNav.current();
+      }
+    }
 
     yaw.current += steer * TURN * dt;
     let move = 0;
     if (forwardHeld) move += 1;
     if (backHeld) move -= 1;
 
-    if (target.current) {
-      const dx = target.current.x - player.current.x;
-      const dz = target.current.z - player.current.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 0.6) {
-        target.current = null;
-        speed.current = 0;
+    const active = !manual && !field ? route.current : null;
+    if (active && live.nav && active.id === live.nav.id) {
+      const pt = live.nav.waypoints[active.i];
+      if (!pt) {
+        route.current = null;
       } else {
-        yaw.current = Math.atan2(-dx, -dz);
-        move = 1;
+        const dx = pt.x - player.current.x;
+        const dz = pt.z - player.current.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.9) {
+          active.i += 1;
+          if (active.i >= live.nav.waypoints.length && !doneSent.current) {
+            doneSent.current = true;
+            route.current = null;
+            arriveNav.current();
+          }
+        } else {
+          yaw.current = Math.atan2(-dx, -dz);
+          move = 1;
+        }
       }
     }
 
     const fx = -Math.sin(yaw.current);
     const fz = -Math.cos(yaw.current);
-
-    speed.current = move * SPEED;
+    const pace = SPEED * (route.current && move > 0 && !manual ? 1.35 : 1);
+    speed.current = move * pace;
     if (move) {
-      player.current.x += fx * SPEED * dt * (move > 0 ? 1 : 0.65);
-      player.current.z += fz * SPEED * dt * (move > 0 ? 1 : 0.65);
-      walked.current += SPEED * dt;
+      const step = pace * dt * (move > 0 ? 1 : 0.65);
+      const nx = player.current.x + fx * step;
+      const nz = player.current.z + fz * step;
+      if (field) {
+        player.current.x = nx;
+        player.current.z = nz;
+        const scale = field.hexScale || HEX_METERS;
+        const h = worldToHex(player.current.x, player.current.z, field.originX!, field.originZ!, scale);
+        const cell = cellAt(field.map!, h.q, h.r);
+        if (!cell || cell.kind === "wall") {
+          player.current.x -= fx * step;
+          player.current.z -= fz * step;
+        } else if (!lastHex.current || lastHex.current.q !== h.q || lastHex.current.r !== h.r) {
+          lastHex.current = { q: h.q, r: h.r };
+          onCombatHex(h.q, h.r);
+        }
+        const now = performance.now();
+        if (!field.result && now - tickAt.current > 850) {
+          tickAt.current = now;
+          fieldTick.current();
+        }
+      } else if (!blockedAt(nx, nz)) {
+        player.current.x = nx;
+        player.current.z = nz;
+      } else if (!blockedAt(nx, player.current.z)) {
+        player.current.x = nx;
+      } else if (!blockedAt(player.current.x, nz)) {
+        player.current.z = nz;
+      } else if (route.current && live.nav) {
+        const last = live.nav.waypoints.length - 1;
+        if (route.current.i < last) route.current.i += 1;
+      }
+      walked.current += step;
+      if (live.flat && !rose.current) {
+        rose.current = true;
+        rise.current();
+      }
     }
+    if (!live.flat) rose.current = false;
+    if (!field) lastHex.current = null;
+
+    const flat = Boolean(live.flat);
     if (pawn.current) {
-      pawn.current.position.set(player.current.x, 1.25, player.current.z);
+      pawn.current.visible = !flat;
+      pawn.current.position.set(player.current.x, flat ? 0.22 : HUMAN_M / 2, player.current.z);
+      pawn.current.scale.set(flat ? 1.7 : HUMAN_W, flat ? 0.42 : HUMAN_M, 1);
     }
 
-    camDesired.set(player.current.x - fx * 16, 12, player.current.z - fz * 16);
+    camDesired.set(player.current.x - fx * 10, 4.8, player.current.z - fz * 10);
     camera.position.lerp(camDesired, 1 - Math.exp(-3.2 * dt));
-    lookAt.set(player.current.x + fx * 6, 1.5, player.current.z + fz * 6);
+    lookAt.set(player.current.x + fx * 14, 2.4, player.current.z + fz * 14);
     camera.lookAt(lookAt);
 
-    const near = nearestDistrict(player.current.x, player.current.z);
-    if (near.id !== lastDistrict.current && near.dist < 14) {
-      lastDistrict.current = near.id;
-      onArrive(near.id, player.current.x, player.current.z);
-    }
-    if (walked.current > 80) {
-      walked.current = 0;
-      onWalkTick(player.current.x, player.current.z);
+    if (!field) {
+      const near = nearestDistrict(player.current.x, player.current.z);
+      if (near.id !== lastDistrict.current && near.dist < 14) {
+        lastDistrict.current = near.id;
+        onArrive(near.id, player.current.x, player.current.z);
+      }
+      if (walked.current > 80) {
+        walked.current = 0;
+        onWalkTick(player.current.x, player.current.z);
+      }
     }
   });
 
   const setWalk = (x: number, z: number) => {
-    target.current = new THREE.Vector3(x, 0, z);
+    if (pausedRef.current || lifeRef.current.combat) return;
+    onGround(x, z);
   };
 
   const mark = inspecting ? BUILDING_BY_ID[inspecting] : null;
@@ -266,7 +392,7 @@ function Rig({
         color={sky.sun > 0.6 ? "#fff4dc" : "#ff8a4a"}
       />
       <ambientLight intensity={night ? 0.16 : 0.16 + sky.sun * 0.22} />
-      <CityBlocks night={night} disabled={disabled} onInspect={onInspect} onWalk={setWalk} />
+      <CityBlocks night={night} weather={weather} disabled={disabled} onInspect={onInspect} onWalk={setWalk} />
       <StreetCrowd
         lifeRef={lifeRef}
         player={player}
@@ -277,6 +403,7 @@ function Rig({
         onNear={onNear}
       />
       {life.combat?.onMap && life.combat.map ? <StreetHexes combat={life.combat} onHex={onCombatHex} /> : null}
+      {life.nav && life.nav.waypoints.length > 1 ? <RouteLine id={life.nav.id} points={life.nav.waypoints} /> : null}
       {mark ? (
         <mesh rotation-x={-Math.PI / 2} position={[mark.x, 0.16, mark.z]}>
           <ringGeometry args={[Math.max(2.4, mark.width * 0.46), Math.max(2.9, mark.width * 0.56), 28]} />
@@ -338,7 +465,11 @@ export function RenoCity3D({
   onStreetContact,
   onTalk,
   onCombatHex,
-  walkTo,
+  onFieldTick,
+  onRise,
+  onNavArrive,
+  onNavCancel,
+  onGround,
   inspecting,
 }: {
   life: RenoLife;
@@ -349,7 +480,11 @@ export function RenoCity3D({
   onStreetContact: (hit: StreetContact) => void;
   onTalk: (actor: StreetActor) => void;
   onCombatHex: (q: number, r: number) => void;
-  walkTo: { x: number; z: number } | null;
+  onFieldTick: () => void;
+  onRise: () => void;
+  onNavArrive: () => void;
+  onNavCancel: () => void;
+  onGround: (x: number, z: number) => void;
   inspecting?: string | null;
 }) {
   const [ready, setReady] = useState(false);
@@ -392,7 +527,11 @@ export function RenoCity3D({
             onTalk={onTalk}
             onNear={setNear}
             onCombatHex={onCombatHex}
-            walkTo={walkTo}
+            onFieldTick={onFieldTick}
+            onRise={onRise}
+            onNavArrive={onNavArrive}
+            onNavCancel={onNavCancel}
+            onGround={onGround}
             inspecting={inspecting ?? null}
             injected={injected}
           />
@@ -423,8 +562,13 @@ export function RenoCity3D({
         </div>
         <div className="pointer-events-auto flex flex-col items-end gap-1">
           <p className="rounded-md bg-bg/75 px-2 py-1 font-mono text-[10px] tracking-wide text-subtle uppercase">
-            Click a person · click a block · WASD · rings mark who they belong to
-            {life.combat?.onMap ? " · hexes are this street, turn-based" : ""}
+            Click a person · click the street · WASD takes the wheel · rings mark who they belong to
+            {life.nav ? ` · walking to ${life.nav.label}` : ""}
+            {life.combat?.field
+              ? " · this block, 40×40, no turns"
+              : life.combat?.onMap
+                ? " · hexes are this street, turn-based"
+                : ""}
           </p>
           <button
             type="button"
@@ -433,6 +577,15 @@ export function RenoCity3D({
           >
             {sound.on ? "City sound on" : "City sound off"}
           </button>
+          {life.nav ? (
+            <button
+              type="button"
+              className="min-h-11 rounded-md bg-bg/80 px-3 font-mono text-[10px] tracking-wide text-fg uppercase"
+              onClick={onNavCancel}
+            >
+              Stop · {life.nav.label} · {Math.max(0, Math.round(Math.hypot(life.posX - life.nav.x, life.posZ - life.nav.z)))} m
+            </button>
+          ) : null}
         </div>
       </div>
       <Pad

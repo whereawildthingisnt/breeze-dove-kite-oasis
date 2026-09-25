@@ -101,7 +101,7 @@ export function RenoPack({
             : "Street and doorways. Rent the Desert Rose or claim a squat."}
         </p>
         <p className="mt-2 font-mono text-[10px] tracking-wide text-subtle uppercase">
-          Caps {life.caps} · Heat {Math.round(life.heat)} · Warrant {Math.round(life.warrant ?? 0)} · Fame {life.fame} · Regard {Math.round(life.regard ?? 0)} · Fear {Math.round(life.fear ?? 0)}
+          Caps {life.caps} · Heat {Math.round(life.heat)} · Code {Math.round(life.warrant ?? 0)} · Fame {life.fame} · Regard {Math.round(life.regard ?? 0)} · Fear {Math.round(life.fear ?? 0)}
         </p>
       </section>
 

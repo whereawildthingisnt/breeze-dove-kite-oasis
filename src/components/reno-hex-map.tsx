@@ -13,6 +13,7 @@ export interface HexUnitView {
   hp?: number;
   hpMax?: number;
   down?: boolean;
+  dead?: boolean;
 }
 
 const SIZE = 16;

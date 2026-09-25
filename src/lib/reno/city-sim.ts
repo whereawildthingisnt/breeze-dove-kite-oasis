@@ -1,5 +1,6 @@
 import { clamp } from "./dice";
 import type { DistrictId, GangId, RenoLife, StoryState } from "./types";
+import { weatherAt, weatherCrowd, weatherLine } from "./weather";
 import { GANGS } from "./world";
 
 export interface VenueDef {
@@ -405,7 +406,8 @@ function tickVenues(life: RenoLife, hour: number) {
         1,
         Math.round(v.employees * (night ? 1.7 : 0.55) * (outside ? 1.28 : 1) * (0.55 + v.prestige / 160)),
       );
-      live.customers = crowd;
+      const wet = weatherCrowd(weatherAt(life.day, h));
+      live.customers = Math.max(1, Math.round(crowd * wet));
       const stake = 5 + Math.round(v.prestige / 14) + (game.includes("high") ? 12 : 0);
       const take = crowd * stake;
       live.cash += take;
@@ -422,6 +424,9 @@ function tickVenues(life: RenoLife, hour: number) {
       }
       if (v.id === "shark" && night) live.activity += " Suites upstairs are full of people who leave on the train.";
       if (v.id === "catclaw") live.activity = `${game}. The cheap weekend. Same hunger, smaller neon.`;
+      const sky = weatherAt(life.day, h);
+      if (sky === "storm" || sky === "rain") live.activity += sky === "storm" ? " Storm on the door." : " Rain on the awning.";
+      else if (sky === "dust") live.activity += " Dust in the entry.";
     } else if (v.kind === "bar") {
       const touristBar = v.id === "longpour";
       let mix = "workers on the first stools";
@@ -432,17 +437,26 @@ function tickVenues(life: RenoLife, hour: number) {
       else if (night) mix = "the regulars, and nobody photographing the neon";
       else if (h >= 12) mix = "a thin crowd. One informant if you know the stool";
       const crowd = Math.max(1, Math.round(v.employees * (night ? 2.3 : 0.7) * (touristBar && night ? 1.2 : 1)));
-      live.customers = crowd;
-      const take = crowd * (3 + Math.round(v.prestige / 30));
+      const sky = weatherAt(life.day, h);
+      const wet = weatherCrowd(sky);
+      const heads = Math.max(1, Math.round(crowd * (sky === "storm" || sky === "rain" ? 1.12 : wet)));
+      live.customers = heads;
+      const take = heads * (3 + Math.round(v.prestige / 30));
       live.cash += take;
       live.revenueToday += take;
       if (v.gang) pulse.families[v.gang].cash += Math.round(take * 0.4);
       if (night && touristBar) pulse.visitorSpend += Math.round(take * 0.35);
       live.activity = mix;
+      if (sky === "storm") live.activity += " Storm keeps the door swinging.";
+      else if (sky === "rain") live.activity += " Rain. People stay on the stools.";
+      else if (sky === "dust") live.activity += " Dust on the coats.";
+      else if (sky === "wind") live.activity += " Wind in the entry.";
     } else {
       const occ = clamp(Math.round((night ? 86 : 48) + v.prestige / 8 - (h >= 8 && h < 11 ? 22 : 0)), 12, 97);
-      live.occupancy = occ;
-      live.customers = Math.round(((v.rooms ?? 10) * occ) / 100);
+      const sky = weatherAt(life.day, h);
+      const shelter = sky === "storm" ? 1.16 : sky === "rain" ? 1.08 : sky === "dust" ? 0.92 : 1;
+      live.occupancy = clamp(Math.round(occ * shelter), 8, 99);
+      live.customers = Math.round(((v.rooms ?? 10) * live.occupancy) / 100);
       const take = live.customers * (v.rate ?? 20);
       live.cash += Math.round(take / 8);
       live.revenueToday += Math.round(take / 8);
@@ -452,6 +466,8 @@ function tickVenues(life: RenoLife, hour: number) {
       else if (h >= 15 && h < 19) live.activity = "Arrivals. Clean boots, short stays, asking for the loud street.";
       else if (night) live.activity = "Hourly keys. They are not from here. The night desk is.";
       else live.activity = "Housekeeping. The day wage does not cover what the night desk sees.";
+      if (sky === "storm" || sky === "rain") live.activity += " Weather is filling the cheap rooms.";
+      else if (sky === "dust") live.activity += " Dust on the lot. People wipe the windshield and stay.";
       if (v.id === "rose" && (s.jetRun === "moving" || s.courierMissing)) {
         live.activity += " One key belongs to someone who is not a tourist.";
       }
@@ -507,6 +523,11 @@ export function advanceCityHour(life: RenoLife): string | null {
   tickVenues(life, life.hour);
   const storyLine = stepStory(life, life.hour);
   syncOps(pulse);
+  const wx = weatherAt(life.day, life.hour);
+  const prevHour = life.hour <= 0 ? 23 : life.hour - 1;
+  const prevDay = life.hour <= 0 ? life.day - 1 : life.day;
+  const weatherNote = wx !== weatherAt(prevDay, prevHour) ? weatherLine(wx) : null;
+  if (weatherNote) hear(pulse, weatherNote);
 
   const here = VENUES.find((v) => v.district === life.district && venueOpen(v, life.hour));
   const local = here ? pulse.venues[here.id] : undefined;
@@ -518,7 +539,7 @@ export function advanceCityHour(life: RenoLife): string | null {
       if (!storyLine && (local.customers ?? 0) >= 4) return color;
     }
   }
-  return storyLine;
+  return storyLine ?? weatherNote;
 }
 
 export function venueIn(district: DistrictId, kind?: VenueDef["kind"]): VenueDef | undefined {

@@ -1,7 +1,7 @@
 import { i as __toESM, r as __require, t as __commonJSMin } from "../../_runtime.mjs";
 import { n as require_react } from "../@radix-ui/react-compose-refs+[...].mjs";
 import { r as parseHref } from "../tanstack__history.mjs";
-import { a as require_react_dom, v as require_with_selector, y as require_jsx_runtime } from "../@react-three/drei+[...].mjs";
+import { S as require_jsx_runtime, a as require_react_dom, x as require_with_selector } from "../@react-three/drei+[...].mjs";
 import { PassThrough, Readable } from "node:stream";
 import { ReadableStream as ReadableStream$1 } from "node:stream/web";
 //#region node_modules/@tanstack/router-core/dist/esm/not-found.js
@@ -14,16 +14,57 @@ function isNotFound(obj) {
 /** Stable identifier used for the root route in a route tree. */
 var rootRouteId = "__root__";
 //#endregion
-//#region node_modules/@tanstack/router-core/dist/esm/utils.js
-function isAbsoluteUrl(url) {
-	if (URL.canParse) return URL.canParse(url);
-	try {
-		new URL(url);
-		return true;
-	} catch {
-		return false;
-	}
+//#region node_modules/@tanstack/router-core/dist/esm/redirect.js
+/**
+* Create a redirect Response understood by TanStack Router.
+*
+* Use from route `loader`/`beforeLoad` or server functions to trigger a
+* navigation. If `throw: true` is set, the redirect is thrown instead of
+* returned. When an absolute `href` is supplied and `reloadDocument` is not
+* set, a full-document navigation is inferred.
+*
+* @param opts Options for the redirect. Common fields:
+* - `href`: absolute URL for external redirects; infers `reloadDocument`.
+* - `statusCode`: HTTP status code to use (defaults to 307).
+* - `headers`: additional headers to include on the Response.
+* - Standard navigation options like `to`, `params`, `search`, `replace`,
+*   and `reloadDocument` for internal redirects.
+* @returns A Response augmented with router navigation options.
+* @link https://tanstack.com/router/latest/docs/framework/react/api/router/redirectFunction
+*/
+function redirect(opts) {
+	opts.statusCode = opts.statusCode || opts.code || 307;
+	if (!opts.reloadDocument && typeof opts.href === "string") try {
+		new URL(opts.href);
+		opts.reloadDocument = true;
+	} catch {}
+	const headers = new Headers(opts.headers);
+	if (opts.href && headers.get("Location") === null) headers.set("Location", opts.href);
+	const response = new Response(null, {
+		status: opts.statusCode,
+		headers
+	});
+	response.options = opts;
+	if (opts.throw) throw response;
+	return response;
 }
+/** Check whether a value is a TanStack Router redirect Response. */
+/** Check whether a value is a TanStack Router redirect Response. */
+function isRedirect(obj) {
+	return obj instanceof Response && !!obj.options;
+}
+/** True if value is a redirect with a resolved `href` location. */
+/** True if value is a redirect with a resolved `href` location. */
+function isResolvedRedirect(obj) {
+	return isRedirect(obj) && !!obj.options.href;
+}
+//#endregion
+//#region node_modules/@tanstack/router-core/dist/esm/ssr/ssr-match-id.js
+function dehydrateSsrMatchId(id) {
+	return id.replaceAll("~", "~~").replaceAll("\0", "~0").replaceAll("�", "~r").replaceAll("/", "\0");
+}
+//#endregion
+//#region node_modules/@tanstack/router-core/dist/esm/utils.js
 /**
 * Return the last element of an array.
 * Intended for non-empty arrays used within router internals.
@@ -249,104 +290,68 @@ function arraysEqual(a, b) {
 	return true;
 }
 //#endregion
-//#region node_modules/@tanstack/router-core/dist/esm/redirect.js
-/**
-* Create a redirect Response understood by TanStack Router.
-*
-* Use from route `loader`/`beforeLoad` or server functions to trigger a
-* navigation. If `throw: true` is set, the redirect is thrown instead of
-* returned. When an absolute `href` is supplied and `reloadDocument` is not
-* set, a full-document navigation is inferred.
-*
-* @param opts Options for the redirect. Common fields:
-* - `href`: absolute URL for external redirects; infers `reloadDocument`.
-* - `statusCode`: HTTP status code to use (defaults to 307).
-* - `headers`: additional headers to include on the Response.
-* - Standard navigation options like `to`, `params`, `search`, `replace`,
-*   and `reloadDocument` for internal redirects.
-* @returns A Response augmented with router navigation options.
-* @link https://tanstack.com/router/latest/docs/framework/react/api/router/redirectFunction
-*/
-function redirect(opts) {
-	opts.statusCode = opts.statusCode || opts.code || 307;
-	if (!opts.reloadDocument && typeof opts.href === "string" && isAbsoluteUrl(opts.href)) opts.reloadDocument = true;
-	const headers = new Headers(opts.headers);
-	if (opts.href && headers.get("Location") === null) headers.set("Location", opts.href);
-	const response = new Response(null, {
-		status: opts.statusCode,
-		headers
-	});
-	response.options = opts;
-	if (opts.throw) throw response;
-	return response;
-}
-/** Check whether a value is a TanStack Router redirect Response. */
-/** Check whether a value is a TanStack Router redirect Response. */
-function isRedirect(obj) {
-	return obj instanceof Response && !!obj.options;
-}
-/** True if value is a redirect with a resolved `href` location. */
-/** True if value is a redirect with a resolved `href` location. */
-function isResolvedRedirect(obj) {
-	return isRedirect(obj) && !!obj.options.href;
-}
-//#endregion
-//#region node_modules/@tanstack/router-core/dist/esm/ssr/ssr-match-id.js
-function dehydrateSsrMatchId(id) {
-	return id.replaceAll("~", "~~").replaceAll("\0", "~0").replaceAll("�", "~r").replaceAll("/", "\0");
-}
-//#endregion
-//#region node_modules/@tanstack/router-core/dist/esm/sieve-cache.js
-/**
-* A fixed-capacity cache using the SIEVE eviction algorithm
-* (https://cachemon.github.io/SIEVE-website/).
-*
-* Entries live in the Map's FIFO insertion order; a hit only flips a `visited`
-* bit instead of relinking the entry, which makes `get` (by far the hottest
-* operation here) one `Map.get` plus a boolean store. Eviction sweeps a `hand`
-* from the oldest entry towards the newest, clearing `visited` bits until it
-* finds an unvisited entry to drop, so entries touched since the last sweep
-* survive one more round. This keeps LRU-like hit ratios while being
-* scan-resistant.
-*/
-function createSieveCache(max) {
+//#region node_modules/@tanstack/router-core/dist/esm/lru-cache.js
+function createLRUCache(max) {
 	const cache = /* @__PURE__ */ new Map();
-	let hand;
+	let oldest;
 	let newest;
+	const touch = (entry) => {
+		if (!entry.next) return;
+		if (!entry.prev) {
+			entry.next.prev = void 0;
+			oldest = entry.next;
+			entry.next = void 0;
+			if (newest) {
+				entry.prev = newest;
+				newest.next = entry;
+			}
+		} else {
+			entry.prev.next = entry.next;
+			entry.next.prev = entry.prev;
+			entry.next = void 0;
+			if (newest) {
+				newest.next = entry;
+				entry.prev = newest;
+			}
+		}
+		newest = entry;
+	};
 	return {
 		get(key) {
 			const entry = cache.get(key);
-			if (!entry) return;
-			entry.visited = true;
+			if (!entry) return void 0;
+			touch(entry);
 			return entry.value;
 		},
 		set(key, value) {
+			if (cache.size >= max && oldest) {
+				const toDelete = oldest;
+				cache.delete(toDelete.key);
+				if (toDelete.next) {
+					oldest = toDelete.next;
+					toDelete.next.prev = void 0;
+				}
+				if (toDelete === newest) newest = void 0;
+			}
 			const existing = cache.get(key);
 			if (existing) {
 				existing.value = value;
-				return;
+				touch(existing);
+			} else {
+				const entry = {
+					key,
+					value,
+					prev: newest
+				};
+				if (newest) newest.next = entry;
+				newest = entry;
+				if (!oldest) oldest = entry;
+				cache.set(key, entry);
 			}
-			if (cache.size >= max) {
-				let node = hand?.next().value;
-				while (!node || node.visited) {
-					if (node) node.visited = false;
-					else hand = cache.values();
-					node = hand.next().value;
-				}
-				if (node === newest) hand = void 0;
-				cache.delete(node.key);
-			}
-			const entry = {
-				key,
-				value,
-				visited: false
-			};
-			newest = entry;
-			cache.set(key, entry);
 		},
 		clear() {
 			cache.clear();
-			hand = void 0;
+			oldest = void 0;
 			newest = void 0;
 		}
 	};
@@ -631,7 +636,7 @@ function processRouteMasks(routeList, processedTree) {
 	for (const route of routeList) parseSegments(false, data, route, 1, segmentTree, 0, dynamicListsToSort);
 	for (const nodes of dynamicListsToSort) nodes.sort(sortDynamic);
 	processedTree.masksTree = segmentTree;
-	processedTree.flatCache = createSieveCache(1e3);
+	processedTree.flatCache = createLRUCache(1e3);
 }
 /**
 * Take an arbitrary list of routes, create a tree from them (if it hasn't been created already), and match a path against it.
@@ -704,8 +709,8 @@ function processRouteTree(routeTree, caseSensitive = false, initRoute) {
 	return {
 		processedTree: {
 			segmentTree,
-			singleCache: createSieveCache(1e3),
-			matchCache: createSieveCache(1e3),
+			singleCache: createLRUCache(1e3),
+			matchCache: createLRUCache(1e3),
 			flatCache: null,
 			masksTree: null
 		},
@@ -1350,18 +1355,14 @@ var defaultStringifySearch = stringifySearchWith(JSON.stringify, JSON.parse);
 * @link https://tanstack.com/router/latest/docs/framework/react/guide/custom-search-param-serialization
 */
 function parseSearchWith(parser) {
-	const isJsonParser = parser === JSON.parse;
 	return (searchStr) => {
 		if (searchStr[0] === "?") searchStr = searchStr.substring(1);
 		const query = decode(searchStr);
 		for (const key in query) {
 			const value = query[key];
-			if (typeof value === "string") {
-				if (isJsonParser && !jsonStart.test(value)) continue;
-				try {
-					query[key] = parser(value);
-				} catch (_err) {}
-			}
+			if (typeof value === "string") try {
+				query[key] = parser(value);
+			} catch (_err) {}
 		}
 		return query;
 	};
@@ -1548,13 +1549,8 @@ function getLocationChangeInfo(location, resolvedLocation) {
 function _getUserHistoryState({ key: _key, __TSR_key: _tsrKey, __TSR_index: _tsrIndex, __hashScrollIntoViewOptions: _hashScroll, ...state }) {
 	return state;
 }
-function lifecycleEnd(matches) {
-	return matches.findIndex((match) => match.status === "error" || match.status === "notFound" || match._notFound) + 1;
-}
 /** Run route lifecycle callbacks in leave/enter/stay phases. */
-function runRouteLifecycle(router, previous, matches, previousEnd, nextEnd, owner) {
-	if (previousEnd) previous = previous.slice(0, previousEnd);
-	if (nextEnd) matches = matches.slice(0, nextEnd);
+function runRouteLifecycle(router, previous, matches, owner) {
 	for (const match of previous) {
 		if (owner && router._tx !== owner) return;
 		if (!matches.some((candidate) => candidate.routeId === match.routeId)) router.routesById[match.routeId].options.onLeave?.(match);
@@ -1613,7 +1609,7 @@ var RouterCore = class {
 					this.resolvePathCache = cached.resolvePathCache;
 					processRouteTreeResult = cached.processRouteTreeResult;
 				} else {
-					this.resolvePathCache = createSieveCache(1e3);
+					this.resolvePathCache = createLRUCache(1e3);
 					processRouteTreeResult = this.buildRouteTree();
 					if (globalThis.__TSR_CACHE__ === void 0) globalThis.__TSR_CACHE__ = {
 						routeTree: this.routeTree,
@@ -1752,6 +1748,7 @@ var RouterCore = class {
 				}
 				const currentLocation = dest._fromLocation || this._pendingLocation || this.latestLocation;
 				const lightweightResult = this.matchRoutesLightweight(currentLocation);
+				if (dest.from && false);
 				const defaultedFromPath = dest.unsafeRelative === "path" ? currentLocation.pathname : dest.from ?? lightweightResult[1];
 				const fromSearch = lightweightResult[2];
 				const fromParams = lightweightResult[3];
@@ -1915,7 +1912,11 @@ var RouterCore = class {
 			return commitPromise;
 		};
 		this.navigate = async ({ to, reloadDocument, href, publicHref, ...rest }) => {
-			const hrefIsUrl = !!href && isAbsoluteUrl(`${href}`);
+			let hrefIsUrl = false;
+			if (href) try {
+				new URL(`${href}`);
+				hrefIsUrl = true;
+			} catch {}
 			if (hrefIsUrl && !reloadDocument) reloadDocument = true;
 			if (reloadDocument) {
 				if (to !== void 0 || !href) {
@@ -2418,7 +2419,7 @@ function waitFor$1(value, signal) {
 	return new Promise((resolve, reject) => {
 		const abort = () => reject(signal);
 		signal.addEventListener("abort", abort, { once: true });
-		Promise.resolve(value).then(resolve, reject).then(() => signal.removeEventListener("abort", abort));
+		Promise.resolve(value).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
 	});
 }
 function getRoute$1(router, match) {
@@ -2500,13 +2501,12 @@ async function contextualize$1(router, lane, options, end, planSuccessfulLane, r
 		}
 		try {
 			setFetching(router, match, "beforeLoad", options[0]);
-			const value = beforeLoad({
+			const result = await waitFor$1(beforeLoad({
 				...common,
 				search: match.search,
 				context: match.context,
 				...router.options.additionalContext
-			});
-			const result = await (typeof value?.then === "function" ? waitFor$1(value, signal) : value);
+			}), signal);
 			if (signal.aborted) return [index, CANCELED_OUTCOME];
 			const outcome = materializeRedirect$1(router, lane, route, normalize$1(result, false, route.id), options);
 			if (outcome[0] !== SUCCESS$1) {
@@ -2709,27 +2709,23 @@ function createLoaderTask$1(router, lane, index, tasks, semanticParent, options,
 		onReady?.();
 	}
 	if (!loaded) match.isFetching = false;
-	const outcome = !reloadFailure && blocking ? loadResource(router, lane, match, route, loader, semanticParent, options).then((result) => {
-		settleInto(match, result, preload);
-		if (result[0] === SUCCESS$1) {
-			if (routeLoader && !options[0].signal.aborted) cacheLoaderMatch(router, match, plannedCacheMatch);
-			if (index >= retainedEnd) match.status = "pending";
+	const outcome = (reloadFailure ? Promise.resolve(reloadFailure) : !blocking ? Promise.resolve([SUCCESS$1, match.loaderData]) : loadResource(router, lane, match, route, loader, semanticParent, options)).then((result) => {
+		if (blocking) {
+			settleInto(match, result, preload);
+			if (result[0] === SUCCESS$1) {
+				if (routeLoader && !options[0].signal.aborted) cacheLoaderMatch(router, match, plannedCacheMatch);
+				if (index >= retainedEnd) match.status = "pending";
+			}
 		}
 		return result;
-	}) : Promise.resolve(reloadFailure ?? [SUCCESS$1, match.loaderData]);
-	const chunkFailure = (async () => {
-		try {
-			const chunk = loadRouteChunk(route, void 0, onLazyReady);
-			if (chunk) await waitFor$1(chunk, options[0].signal);
-		} catch (cause) {
-			if (!lane[1].some((candidate, candidateIndex) => candidateIndex <= index && (candidate.status === "error" || candidate.status === "notFound" || candidate._notFound))) return [index, normalizeLaneError(router, lane, route, cause, options)];
-		}
-		const result = await outcome;
-		if (blocking && result[0] === SUCCESS$1 && match.status === "pending" && !options[0].signal.aborted) {
+	});
+	const chunkFailure = waitFor$1(Promise.resolve().then(() => loadRouteChunk(route, void 0, onLazyReady)), options[0].signal).then(() => void 0, (cause) => lane[1].some((candidate, candidateIndex) => candidateIndex <= index && (candidate.status === "error" || candidate.status === "notFound" || candidate._notFound)) ? void 0 : [index, normalizeLaneError(router, lane, route, cause, options)]).then((failure) => outcome.then((result) => {
+		if (blocking && !failure && result[0] === SUCCESS$1 && match.status === "pending" && !options[0].signal.aborted) {
 			match.status = "success";
 			onReady?.();
 		}
-	})();
+		return failure;
+	}));
 	tasks.push([
 		index,
 		outcome,
@@ -2956,9 +2952,8 @@ async function executeClientLane(router, location, matches, options) {
 			const match = matches[retainedEnd];
 			const committed = options[2][retainedEnd];
 			const visible = presented[retainedEnd];
-			if (committed?.id !== match.id || committed.status !== "success" || match.preload || visible?.id !== match.id || visible.status !== "success") break;
+			if (committed?.id !== match.id || committed.status !== "success" || committed._notFound || match.preload || visible?.id !== match.id || visible.status !== "success" || visible._notFound) break;
 			retainedEnd++;
-			if (committed._notFound || visible._notFound) break;
 		}
 		const tasks = [];
 		const start = options[6] ?? 0;
@@ -3112,7 +3107,7 @@ function navigateFrom(router, location) {
 function waitFor(value, signal) {
 	return signal ? waitForReason(value, signal) : value;
 }
-function resolveSsr(router, lane, index) {
+async function resolveSsr(router, lane, index) {
 	const match = lane.matches[index];
 	const route = getRoute(router, match);
 	const parentSsr = lane.matches[index - 1]?.ssr;
@@ -3127,7 +3122,7 @@ function resolveSsr(router, lane, index) {
 	const option = route.options.ssr;
 	if (option === void 0) return inheritedDefault;
 	if (typeof option !== "function") return inherit(option);
-	const context = {
+	return inherit(await option({
 		search: maybe(match.search, match.searchError),
 		params: maybe(match.params, match.paramsError),
 		location: lane.location,
@@ -3142,12 +3137,7 @@ function resolveSsr(router, lane, index) {
 			params: maybe(candidate.params, candidate.paramsError),
 			ssr: candidate.ssr
 		}))
-	};
-	try {
-		return Promise.resolve(option(context)).then((value) => inherit(value ?? defaultSsr));
-	} catch (cause) {
-		return Promise.reject(cause);
-	}
+	}) ?? defaultSsr);
 }
 function stampNotFound(match, outcome) {
 	if (outcome[0] === NOT_FOUND && !outcome[1].routeId) outcome[1].routeId = match.routeId;
@@ -3162,8 +3152,7 @@ async function contextualize(router, lane, signal) {
 		const match = lane.matches[index];
 		const route = getRoute(router, match);
 		try {
-			const ssr = resolveSsr(router, lane, index);
-			match.ssr = ssr instanceof Promise ? await ssr : ssr;
+			match.ssr = await resolveSsr(router, lane, index);
 		} catch (cause) {
 			signal?.throwIfAborted();
 			failure = [index, stampNotFound(match, normalizeError(router, lane, route, cause, signal))];
@@ -3579,7 +3568,6 @@ async function loadServerRoute(router, opts) {
 	router.updateLatestLocation();
 	const next = router.latestLocation;
 	const previous = router._committed;
-	const previousEnd = router._lifecycleEnd;
 	let result;
 	try {
 		const canonical = router.buildLocation({
@@ -3613,18 +3601,18 @@ async function loadServerRoute(router, opts) {
 		};
 	}
 	router._serverResult = result;
-	let nextEnd = 0;
 	router.batch(() => {
 		router.stores.location.set(next);
 		router.stores.status.set("idle");
 		if (result.type === "render") {
-			router._committed = result.matches;
-			nextEnd = router._lifecycleEnd = lifecycleEnd(result.matches);
 			router.stores.setMatches(result.matches);
 			router.stores.resolvedLocation.set(next);
 		}
 	});
-	if (result.type === "render") runRouteLifecycle(router, previous, result.matches, previousEnd, nextEnd);
+	if (result.type === "render") {
+		router._committed = result.matches;
+		runRouteLifecycle(router, previous, result.matches);
+	}
 	router._commitPromise?.resolve();
 	router._commitPromise = void 0;
 }
@@ -3799,21 +3787,21 @@ var import_jsx_runtime = require_jsx_runtime();
 var CatchBoundary = class extends import_react.Component {
 	constructor(..._args) {
 		super(..._args);
-		this.state = { error: 0 };
+		this.state = { error: null };
 		this.reset = () => {
-			this.setState({ error: 0 });
+			this.setState({ error: null });
 		};
 	}
 	static getDerivedStateFromProps(props, state) {
 		const resetKey = props.getResetKey();
 		if (state.error && state.resetKey !== resetKey) return {
 			resetKey,
-			error: 0
+			error: null
 		};
 		return { resetKey };
 	}
 	static getDerivedStateFromError(error) {
-		return { error: [error] };
+		return { error };
 	}
 	componentDidCatch(error, errorInfo) {
 		this.props.onCatch?.(error, errorInfo);
@@ -3821,7 +3809,7 @@ var CatchBoundary = class extends import_react.Component {
 	render() {
 		const error = this.state.error;
 		if (error) return import_react.createElement(this.props.errorComponent ?? ErrorComponent, {
-			error: error[0],
+			error,
 			reset: this.reset
 		});
 		return this.props.children;
@@ -3867,7 +3855,7 @@ function ErrorComponent({ error }) {
 					color: "red",
 					overflow: "auto"
 				},
-				children: error?.message ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: error.message }) : null
+				children: error.message ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: error.message }) : null
 			}) }) : null
 		]
 	});
@@ -4308,11 +4296,11 @@ function useRouteContext(opts) {
 function useLinkProps(options, forwardedRef) {
 	const router = useRouter();
 	const innerRef = useForwardedRef(forwardedRef);
-	const { activeProps, inactiveProps, activeOptions, to: toOption, preload: userPreload, preloadDelay: userPreloadDelay, preloadIntentProximity: _preloadIntentProximity, hashScrollIntoView, replace, startTransition, resetScroll, viewTransition, children, target, disabled, style, className, onClick, onBlur, onFocus, onMouseEnter, onMouseLeave, onTouchStart, ignoreBlocker, params: _params, search: _search, hash: _hash, state: _state, mask: _mask, reloadDocument: _reloadDocument, unsafeRelative: _unsafeRelative, from: _from, _fromLocation, ...propsSafeToSpread } = options;
-	const to = toOption;
+	const { activeProps, inactiveProps, activeOptions, to, preload: userPreload, preloadDelay: userPreloadDelay, preloadIntentProximity: _preloadIntentProximity, hashScrollIntoView, replace, startTransition, resetScroll, viewTransition, children, target, disabled, style, className, onClick, onBlur, onFocus, onMouseEnter, onMouseLeave, onTouchStart, ignoreBlocker, params: _params, search: _search, hash: _hash, state: _state, mask: _mask, reloadDocument: _reloadDocument, unsafeRelative: _unsafeRelative, from: _from, _fromLocation, ...propsSafeToSpread } = options;
 	{
 		const safeInternal = isSafeInternal(to);
-		if (!safeInternal && isAbsoluteUrl(to)) {
+		if (typeof to === "string" && !safeInternal && to.indexOf(":") > -1) try {
+			new URL(to);
 			if (isDangerousProtocol(to, router.protocolAllowlist)) return {
 				...propsSafeToSpread,
 				ref: innerRef,
@@ -4333,7 +4321,7 @@ function useLinkProps(options, forwardedRef) {
 				...style && { style },
 				...className && { className }
 			};
-		}
+		} catch {}
 		const next = router.buildLocation({
 			...options,
 			from: options.from
@@ -4344,10 +4332,12 @@ function useLinkProps(options, forwardedRef) {
 				if (isDangerousProtocol(hrefOption.href, router.protocolAllowlist)) return;
 				return hrefOption.href;
 			}
-			if (!safeInternal && isAbsoluteUrl(to)) {
+			if (safeInternal) return void 0;
+			if (typeof to === "string" && to.indexOf(":") > -1) try {
+				new URL(to);
 				if (isDangerousProtocol(to, router.protocolAllowlist)) return;
 				return to;
-			}
+			} catch {}
 		})();
 		const isActive = (() => {
 			if (externalLink) return false;
@@ -4490,8 +4480,9 @@ var Route = class extends BaseRoute {
 		super(options);
 		this.useMatch = (opts) => {
 			return useMatch({
-				...opts,
-				from: this.id
+				select: opts?.select,
+				from: this.id,
+				structuralSharing: opts?.structuralSharing
 			});
 		};
 		this.useRouteContext = (opts) => {
@@ -4502,13 +4493,15 @@ var Route = class extends BaseRoute {
 		};
 		this.useSearch = (opts) => {
 			return useSearch({
-				...opts,
+				select: opts?.select,
+				structuralSharing: opts?.structuralSharing,
 				from: this.id
 			});
 		};
 		this.useParams = (opts) => {
 			return useParams({
-				...opts,
+				select: opts?.select,
+				structuralSharing: opts?.structuralSharing,
 				from: this.id
 			});
 		};
@@ -4558,8 +4551,9 @@ var RootRoute = class extends BaseRootRoute {
 		super(options);
 		this.useMatch = (opts) => {
 			return useMatch({
-				...opts,
-				from: this.id
+				select: opts?.select,
+				from: this.id,
+				structuralSharing: opts?.structuralSharing
 			});
 		};
 		this.useRouteContext = (opts) => {
@@ -4570,13 +4564,15 @@ var RootRoute = class extends BaseRootRoute {
 		};
 		this.useSearch = (opts) => {
 			return useSearch({
-				...opts,
+				select: opts?.select,
+				structuralSharing: opts?.structuralSharing,
 				from: this.id
 			});
 		};
 		this.useParams = (opts) => {
 			return useParams({
-				...opts,
+				select: opts?.select,
+				structuralSharing: opts?.structuralSharing,
 				from: this.id
 			});
 		};
@@ -5003,7 +4999,6 @@ function setScriptAttrs(script, attrs) {
 }
 function Asset(asset) {
 	const { attrs, children, nonce, preventScriptHoist } = asset;
-	const innerHTML = import_react.useMemo(() => children === void 0 ? void 0 : { __html: children }, [children]);
 	switch (asset.tag) {
 		case "title": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("title", {
 			...attrs,
@@ -5024,7 +5019,7 @@ function Asset(asset) {
 			if (asset.inlineCss && false);
 			return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("style", {
 				...attrs,
-				dangerouslySetInnerHTML: innerHTML,
+				dangerouslySetInnerHTML: { __html: children },
 				nonce
 			});
 		case "script": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Script, {
@@ -5038,15 +5033,19 @@ function Asset(asset) {
 function Script({ attrs, children, preventScriptHoist }) {
 	useRouter();
 	useHydrated();
-	const innerHTML = import_react.useMemo(() => children === void 0 ? void 0 : { __html: children }, [children]);
 	const dataScript = typeof attrs?.type === "string" && attrs.type !== "" && attrs.type !== "text/javascript" && attrs.type !== "module";
 	import_react.useEffect(() => {
 		if (dataScript) return;
 		if (attrs?.src) {
-			const link = document.createElement("a");
-			link.href = attrs.src;
-			const normSrc = link.href;
-			for (const el of document.scripts) if (el.src === normSrc) return;
+			const normSrc = (() => {
+				try {
+					const base = document.baseURI || window.location.href;
+					return new URL(attrs.src, base).href;
+				} catch {
+					return attrs.src;
+				}
+			})();
+			for (const el of document.querySelectorAll("script[src]")) if (el.src === normSrc) return;
 			const script = document.createElement("script");
 			setScriptAttrs(script, attrs);
 			document.head.appendChild(script);
@@ -5055,8 +5054,8 @@ function Script({ attrs, children, preventScriptHoist }) {
 		if (typeof children === "string") {
 			const typeAttr = typeof attrs?.type === "string" ? attrs.type : "text/javascript";
 			const nonceAttr = typeof attrs?.nonce === "string" ? attrs.nonce : void 0;
-			for (const el of document.scripts) {
-				if (el.hasAttribute("src")) continue;
+			for (const el of document.querySelectorAll("script:not([src])")) {
+				if (!(el instanceof HTMLScriptElement)) continue;
 				const sType = el.getAttribute("type") ?? "text/javascript";
 				const sNonce = el.getAttribute("nonce") ?? void 0;
 				if (el.textContent === children && sType === typeAttr && sNonce === nonceAttr) return;
@@ -5085,7 +5084,7 @@ function Script({ attrs, children, preventScriptHoist }) {
 	}
 	if (typeof children === "string") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("script", {
 		...attrs,
-		dangerouslySetInnerHTML: innerHTML,
+		dangerouslySetInnerHTML: { __html: children },
 		suppressHydrationWarning: true
 	});
 	return null;
@@ -8703,8 +8702,8 @@ var require_react_dom_server_legacy_node_production = /* @__PURE__ */ __commonJS
 			var prevResumableState = currentResumableState;
 			currentResumableState = request$jscomp$2.resumableState;
 			try {
-				var pingedTasks = request$jscomp$2.pingedTasks, i = 0;
-				for (; i < pingedTasks.length; i++) {
+				var pingedTasks = request$jscomp$2.pingedTasks, i;
+				for (i = 0; i < pingedTasks.length; i++) {
 					var task = pingedTasks[i], request = request$jscomp$2, segment = task.blockedSegment;
 					if (null === segment) {
 						var request$jscomp$0 = request;
@@ -12776,8 +12775,8 @@ var require_react_dom_server_node_production = /* @__PURE__ */ __commonJSMin(((e
 			var prevResumableState = currentResumableState;
 			currentResumableState = request$jscomp$2.resumableState;
 			try {
-				var pingedTasks = request$jscomp$2.pingedTasks, i = 0;
-				for (; i < pingedTasks.length; i++) {
+				var pingedTasks = request$jscomp$2.pingedTasks, i;
+				for (i = 0; i < pingedTasks.length; i++) {
 					var task = pingedTasks[i], request = request$jscomp$2, segment = task.blockedSegment;
 					if (null === segment) {
 						var request$jscomp$0 = request;
@@ -14403,4 +14402,4 @@ var renderRouterToStream = async ({ request, router, responseHeaders, children }
 	throw new Error("No renderToReadableStream or renderToPipeableStream found in react-dom/server. Ensure you are using a version of react-dom that supports streaming.");
 };
 //#endregion
-export { invariant as A, createInlineCssStyleAsset as C, resolveManifestCssLink as D, resolveManifestAssetLink as E, decodePath as F, rootRouteId as I, isNotFound as L, dehydrateSsrMatchId as M, isRedirect as N, _getRenderedMatches as O, isResolvedRedirect as P, createInlineCssPlaceholderAsset as S, getStylesheetHref as T, Link as _, isSsrResponse as a, GLOBAL_TSR as b, stripSsrResponseBody as c, RouterProvider as d, createRouter as f, createRootRoute as g, createFileRoute as h, disposeSsrResponseDetached as i, createSieveCache as j, executeRewriteInput as k, Scripts as l, lazyRouteComponent as m, bindSsrResponseToRequest as n, normalizeSsrResponse as o, Outlet as p, defineHandlerCallback as r, replaceSsrResponse as s, renderRouterToStream as t, HeadContent as u, useNavigate as v, getScriptPreloadAttrs as w, TSR_SCRIPT_BARRIER_ID as x, useRouter as y };
+export { invariant as A, createInlineCssStyleAsset as C, resolveManifestCssLink as D, resolveManifestAssetLink as E, isResolvedRedirect as F, rootRouteId as I, isNotFound as L, decodePath as M, dehydrateSsrMatchId as N, _getRenderedMatches as O, isRedirect as P, createInlineCssPlaceholderAsset as S, getStylesheetHref as T, Link as _, isSsrResponse as a, GLOBAL_TSR as b, stripSsrResponseBody as c, RouterProvider as d, createRouter as f, createRootRoute as g, createFileRoute as h, disposeSsrResponseDetached as i, createLRUCache as j, executeRewriteInput as k, Scripts as l, lazyRouteComponent as m, bindSsrResponseToRequest as n, normalizeSsrResponse as o, Outlet as p, defineHandlerCallback as r, replaceSsrResponse as s, renderRouterToStream as t, HeadContent as u, useNavigate as v, getScriptPreloadAttrs as w, TSR_SCRIPT_BARRIER_ID as x, useRouter as y };

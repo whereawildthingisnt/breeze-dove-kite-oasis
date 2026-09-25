@@ -4,6 +4,7 @@ import type { ScheduleRole } from "./schedules";
 import { ensurePulse } from "./city-sim";
 import type { GangId, HexBoard, RenoLife } from "./types";
 import { GANG_BY_ID, DISTRICT_POS } from "./world";
+import { zoneAt } from "./zones";
 
 export type Allegiance = "citizen" | "independent" | "family" | "law" | "wild";
 
@@ -21,6 +22,9 @@ export interface SoulDef {
   post: { x: number; z: number };
   night?: boolean;
   blade?: boolean;
+  /** What she says when she walks up. Caps leave your pocket if you talk and pass speech. */
+  pitch?: string;
+  price?: number;
   /** CityRun id. This person is in that car. */
   ride?: string;
 }
@@ -75,10 +79,10 @@ export const SOULS: SoulDef[] = [
   { id: "harlan", name: "Harlan Crowe", allegiance: "family", gang: "bishops", watch: "mordinos", role: "collector", kind: "bishop", sprite: "/reno/tokens/gangster.webp", home: at("bishop", -2, 2), post: at("shark", 2, -2), blade: true },
   { id: "mickey", name: "Mickey Shaw", allegiance: "family", gang: "bishops", watch: "salvatores", role: "courier", kind: "bishop", sprite: "/reno/tokens/gangster.webp", home: at("shark", -3, 3), post: at("bishop", 3, -1), blade: true },
 
-  { id: "lang", name: "Officer Lang", allegiance: "law", role: "police", kind: "cop", sprite: "/reno/tokens/cop.webp", home: at("virgin", -2, 6), post: at("virgin", 6, -2) },
-  { id: "keene", name: "Officer Keene", allegiance: "law", role: "police", kind: "cop", sprite: "/reno/tokens/cop.webp", home: at("shark", 3, 5), post: at("desperado", -2, 2) },
-  { id: "dodd", name: "Sgt. Dodd", allegiance: "law", role: "police", kind: "cop", sprite: "/reno/tokens/cop.webp", home: at("desperado", 4, -4), post: at("virgin", -6, 1), night: true },
-  { id: "moss", name: "Deputy Moss", allegiance: "law", role: "police", kind: "cop", sprite: "/reno/tokens/cop.webp", home: at("market", 6, 5), post: at("market", -3, -2) },
+  { id: "lang", name: "Lang Voss", allegiance: "family", gang: "bishops", watch: "mordinos", role: "collector", kind: "bishop", sprite: "/reno/tokens/gangster.webp", home: at("virgin", -2, 6), post: at("shark", 6, -2), blade: true },
+  { id: "keene", name: "Keene Mora", allegiance: "family", gang: "mordinos", watch: "bishops", role: "collector", kind: "mordino", sprite: "/reno/tokens/gangster.webp", home: at("mordino", 3, 5), post: at("desperado", -2, 2), blade: true },
+  { id: "dodd", name: "Dodd Glass", allegiance: "family", gang: "salvatores", watch: "mordinos", role: "collector", kind: "salvatore", sprite: "/reno/tokens/gangster.webp", home: at("salvatore", 4, -4), post: at("salvatore", -6, 1), night: true, blade: true },
+  { id: "moss", name: "Moss Wright", allegiance: "family", gang: "wrights", watch: "mordinos", role: "collector", kind: "wright", sprite: "/reno/tokens/gangster.webp", home: at("wright", 6, 5), post: at("wright", -3, -2), blade: true },
 
   { id: "cough", name: "The Cough", allegiance: "wild", role: "wild", kind: "ghoul", sprite: "/reno/tokens/junkie.webp", home: at("golgotha", -4, 2), post: at("golgotha", 3, -2) },
   { id: "shallow", name: "Shallow", allegiance: "wild", role: "wild", kind: "ghoul", sprite: "/reno/tokens/junkie.webp", home: at("golgotha", 2, 5), post: at("golgotha", -3, 1) },
@@ -89,6 +93,33 @@ export const SOULS: SoulDef[] = [
   { id: "nena", name: "Nena Pell", allegiance: "citizen", role: "tourist", kind: "tourist", sprite: "/reno/tokens/tourist-traveler.webp", home: { x: 1520, z: 54 }, post: at("shark", -2, 2), ride: "east" },
   { id: "ortiz", name: "Ortiz Dane", allegiance: "citizen", role: "guide", kind: "john", sprite: "/reno/tokens/expat.webp", home: { x: -1480, z: 26 }, post: at("desperado", 2, 1), ride: "west" },
   { id: "cleo", name: "Cleo Marsh", allegiance: "citizen", role: "guest", kind: "tourist", sprite: "/reno/tokens/backpacker.webp", home: { x: 52, z: -1464 }, post: at("virgin", -4, 1) },
+
+  { id: "len", name: "Len Crowe", allegiance: "citizen", role: "worker", kind: "john", sprite: "/reno/tokens/ped-man.webp", home: at("virgin", -8, 6), post: at("market", 2, 2) },
+  { id: "bao", name: "Bao Tran", allegiance: "citizen", role: "staff", kind: "john", sprite: "/reno/tokens/ped-man.webp", home: at("desperado", -8, -6), post: at("desperado", 1, 3) },
+  { id: "willa", name: "Willa Trent", allegiance: "citizen", role: "worker", kind: "john", sprite: "/reno/tokens/ped-woman.webp", home: at("chop", 6, -4), post: at("chop", -2, 2) },
+  { id: "etta", name: "Etta Wright", allegiance: "family", gang: "wrights", role: "resident", kind: "wright", sprite: "/reno/tokens/ped-woman.webp", home: at("wright", -4, 4), post: at("wright", 2, 1) },
+  { id: "slim", name: "Slim Bello", allegiance: "family", gang: "mordinos", watch: "bishops", role: "collector", kind: "mordino", sprite: "/reno/tokens/gangster.webp", home: at("mordino", 6, -2), post: at("mordino", -3, 2), blade: true },
+  { id: "mira", name: "Doc Mira", allegiance: "citizen", role: "worker", kind: "tourist", sprite: "/reno/tokens/ped-woman.webp", home: at("stables", -5, 6), post: at("stables", 2, -2) },
+  { id: "poke", name: "Poke Ives", allegiance: "independent", role: "resident", kind: "punk", sprite: "/reno/tokens/junkie.webp", home: at("jungle", -6, 5), post: at("jungle", 3, -2) },
+  { id: "lottie", name: "Lottie Glass", allegiance: "citizen", role: "staff", kind: "tourist", sprite: "/reno/tokens/host.webp", home: at("salvatore", 5, -4), post: at("salvatore", -1, 2) },
+  { id: "hale", name: "Brother Hale", allegiance: "citizen", role: "resident", kind: "john", sprite: "/reno/tokens/expat.webp", home: at("stables", 8, 2), post: at("market", -4, -2) },
+  { id: "tom", name: "Tom Peck", allegiance: "citizen", role: "worker", kind: "john", sprite: "/reno/tokens/ped-man.webp", home: at("market", 8, -6), post: at("market", -1, 3) },
+  { id: "nina", name: "Nina Sol", allegiance: "citizen", role: "tourist", kind: "tourist", sprite: "/reno/tokens/tourist-ncr.webp", home: at("shark", -8, 8), post: at("shark", 2, -3), night: true },
+  { id: "wes", name: "Wes Calder", allegiance: "citizen", role: "guest", kind: "tourist", sprite: "/reno/tokens/backpacker.webp", home: at("virgin", 8, -8), post: at("virgin", -2, 3) },
+
+  { id: "pearl", name: "Pearl Quinn", allegiance: "citizen", role: "walker", kind: "tourist", sprite: "/reno/tokens/ped-woman.webp", home: at("motel", -2, 6), post: at("motel", 2, -1), night: true, pitch: "Talk is free. The hour is forty. Click again if you mean it.", price: 40 },
+  { id: "dollie", name: "Dollie Shaw", allegiance: "citizen", role: "walker", kind: "tourist", sprite: "/reno/tokens/host.webp", home: at("virgin", 4, -8), post: at("virgin", -2, 2), night: true, pitch: "Standing is the ad. The hour is fifty-five. Click again to hire it.", price: 55 },
+  { id: "marisol", name: "Marisol Vega", allegiance: "citizen", role: "walker", kind: "tourist", sprite: "/reno/tokens/floor.webp", home: at("desperado", 6, -8), post: at("desperado", -3, -1), night: true, pitch: "No tour. Forty-five for the hour. Click again with the caps.", price: 45 },
+  { id: "kit", name: "Kit Abel", allegiance: "citizen", role: "walker", kind: "tourist", sprite: "/reno/tokens/tourist-traveler.webp", home: at("chop", -4, 8), post: at("chop", 2, 1), night: true, pitch: "The other job is tonight. Thirty-five. Click again.", price: 35 },
+  { id: "faye", name: "Faye Brin", allegiance: "citizen", role: "walker", kind: "tourist", sprite: "/reno/dance/amira/a.webp", home: at("salvatore", -6, 6), post: at("salvatore", 2, -2), night: true, pitch: "Eighty. Night number. Click again if you have it.", price: 80 },
+  { id: "tess", name: "Tess Harlow", allegiance: "citizen", role: "walker", kind: "tourist", sprite: "/reno/dance/luz/a.webp", home: at("jungle", 2, -6), post: at("jungle", -2, 2), night: true, pitch: "Talk so I know you're safe. Twenty-five for the hour. Click again.", price: 25 },
+
+  { id: "velvet", name: "Nia Kane", allegiance: "citizen", role: "dancer", kind: "dancer", sprite: "/reno/dance/nia/a.webp", home: at("shark", 2, 6), post: at("shark", -1, 1), night: true, pitch: "Public floor is the gold fringe. The booth is extra, and it gets more expensive.", price: 30 },
+  { id: "chrome", name: "Mei Della", allegiance: "citizen", role: "dancer", kind: "dancer", sprite: "/reno/dance/mei/a.webp", home: at("desperado", -4, 6), post: at("desperado", 1, -1), night: true, pitch: "Silver on the stage. If you want me closer, you pay the steps.", price: 28 },
+  { id: "goldie", name: "Luz Navarro", allegiance: "citizen", role: "dancer", kind: "dancer", sprite: "/reno/dance/luz/a.webp", home: at("virgin", 6, -6), post: at("virgin", 1, 2), night: true, pitch: "The fringe is the public set. The chair is not.", price: 32 },
+  { id: "emmy", name: "Amira Shah", allegiance: "citizen", role: "dancer", kind: "dancer", sprite: "/reno/dance/amira/a.webp", home: at("shark", -6, 4), post: at("shark", 3, -2), night: true, pitch: "Emerald on the hour. Private is three prices, not one.", price: 35 },
+  { id: "lace", name: "Ines Yazzie", allegiance: "citizen", role: "dancer", kind: "dancer", sprite: "/reno/dance/ines/a.webp", home: at("desperado", 8, -4), post: at("desperado", -2, 2), night: true, pitch: "I dance the floor, then the booth. The last step costs the most.", price: 26 },
+  { id: "ruby", name: "Ruby Pell", allegiance: "citizen", role: "dancer", kind: "dancer", sprite: "/reno/dance/ines/b.webp", home: at("mordino", 4, -5), post: at("mordino", -1, 2), night: true, pitch: "The Globes get the late set. The booth still climbs.", price: 26 },
 ];
 
 export const SOUL_BY_ID: Record<string, SoulDef> = Object.fromEntries(SOULS.map((s) => [s.id, s]));
@@ -113,6 +144,8 @@ export function ensureCity(life: RenoLife): RenoLife {
   life.friction = { ...EMPTY_FRICTION(), ...(life.friction ?? {}) };
   life.grudges = { ...(life.grudges ?? {}) };
   life.absent = { ...(life.absent ?? {}) };
+  life.corpses = life.corpses ?? [];
+  life.privateShows = { ...(life.privateShows ?? {}) };
   life.reprieveMinute = life.reprieveMinute ?? 0;
   ensurePulse(life);
   return life;
@@ -130,7 +163,7 @@ export function ringColor(soul: SoulDef): string {
 export function allegianceLabel(soul: SoulDef): string {
   if (soul.allegiance === "citizen") return "citizen";
   if (soul.allegiance === "independent") return "independent";
-  if (soul.allegiance === "law") return "police";
+  if (soul.allegiance === "law") return "the code";
   if (soul.allegiance === "wild") return "the edge";
   if (soul.gang) return GANG_BY_ID[soul.gang].name;
   return "family";
@@ -177,6 +210,20 @@ export function soulGoal(
     const spot = schedulePoint(soul, life);
     return { x: spot.x, z: spot.z };
   };
+
+  if (soul.role === "dancer") {
+    const onFloor = life.hour >= 8 || life.hour < 4;
+    const spot = scheduled();
+    if (onFloor && dist(spot.x, spot.z, playerX, playerZ) < 36) return { x: playerX, z: playerZ };
+    return spot;
+  }
+
+  if (soul.role === "walker") {
+    const out = life.hour >= 18 || life.hour < 5;
+    const spot = scheduled();
+    if (out && dist(spot.x, spot.z, playerX, playerZ) < 32) return { x: playerX, z: playerZ };
+    return spot;
+  }
 
   if (soul.allegiance === "citizen") {
     const beat = soul.post;
@@ -275,6 +322,7 @@ export function feudNear(life: RenoLife, playerX: number, playerZ: number, spots
   const pb = spots.get(best.b.id)!;
   const x = (pa.x + pb.x) / 2;
   const z = (pa.z + pb.z) / 2;
+  if (zoneAt(x, z) === "strip") return null;
   if (dist(playerX, playerZ, x, z) > 13) return null;
   const gangA = best.a.gang!;
   const gangB = best.b.gang!;

@@ -13,6 +13,7 @@ import type {
   StashId,
 } from "./types";
 import { seedDealers, seedMarks } from "./intel";
+import { weatherAt } from "./weather";
 
 export const DISTRICTS: DistrictDef[] = [
   {
@@ -404,8 +405,11 @@ export function clockLabel(life: RenoLife): string {
   const dom = ((life.day - 1) % 30) + 1;
   const pad = String(h).padStart(2, "0");
   const min = String(life.minute ?? 0).padStart(2, "0");
+  const sec = String(life.second ?? 0).padStart(2, "0");
   const night = h >= 20 || h < 6;
-  return `Month ${month} · Day ${dom} · ${pad}:${min}${night ? " · night" : ""}`;
+  const wx = weatherAt(life.day, h);
+  const sky = wx === "clear" ? "" : ` · ${wx}`;
+  return `Month ${month} · Day ${dom} · ${pad}:${min}:${sec}${night ? " · night" : ""}${sky}`;
 }
 
 export function isNight(life: RenoLife): boolean {
@@ -496,6 +500,8 @@ export function newLife(characterId: string, hpMax: number): RenoLife {
     day: 1,
     hour: 8,
     minute: 0,
+    second: 0,
+    clock: 1,
     caps: 220,
     hp: hpMax,
     hpMax,
@@ -533,7 +539,7 @@ export function newLife(characterId: string, hpMax: number): RenoLife {
     pressureDay: 0,
     rations: 0,
     waters: 0,
-    log: ["Virgin Street. New Reno. A hundred thousand souls, and the Strip still wants yours."],
+    log: ["Virgin Street. New Reno. Two hundred sixty thousand souls, a hundred and nine square miles, and the Strip still wants yours."],
     combat: null,
     sighting: null,
     dialogue: null,
@@ -553,6 +559,9 @@ export function newLife(characterId: string, hpMax: number): RenoLife {
     friction: emptyRep(),
     grudges: {},
     absent: {},
+    corpses: [],
     reprieveMinute: 0,
+    book: [],
+    nav: null,
   };
 }
